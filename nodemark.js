@@ -7,7 +7,8 @@
 //   node nodemark.js          服务没在运行就在后台启动，然后用默认浏览器打开页面
 //   node nodemark.js serve    在前台运行服务（看日志、调试用）
 //   node nodemark.js stop     停掉后台服务
-// 选项：--port <端口>（默认 9099）、--no-open（只启动不开浏览器）
+// 选项：--port <端口>（默认 9099）、--no-open（只启动不开浏览器）、
+//       --demo（演示模式：用假数据，不连内核、不写标记文件，默认端口 9098）
 
 'use strict';
 const http = require('http');
@@ -27,8 +28,9 @@ function option(name) {
   return i >= 0 ? argv[i + 1] : undefined;
 }
 const command = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--port')[0] || 'open';
-const PORT = Number(option('--port') || process.env.NODEMARK_PORT) || 9099;
 const NO_OPEN = argv.includes('--no-open');
+const DEMO = argv.includes('--demo');
+const PORT = Number(option('--port') || (!DEMO && process.env.NODEMARK_PORT)) || (DEMO ? 9098 : 9099);
 
 // ---------- 路径 ----------
 
@@ -113,6 +115,7 @@ function vergeSettings() {
 
 // 当前订阅：profiles.yaml 顶层 current 是 uid，到 items 里找同 uid 那一项的 name；没有 Clash Verge 时统一记在 default 下
 function currentProfile() {
+  if (DEMO) return { uid: 'demo', name: '示例订阅' };
   const y = readVerge('profiles.yaml');
   if (!y) return { uid: 'default', name: 'default' };
   const uid = yamlScalar(y, 'current') || 'default';
@@ -128,11 +131,82 @@ function currentProfile() {
   return { uid, name };
 }
 
+// ---------- 演示模式：一个只在内存里的假内核 ----------
+
+const demo = (() => {
+  const regions = [['🇭🇰', '香港'], ['🇯🇵', '日本'], ['🇸🇬', '新加坡'], ['🇺🇸', '美国'], ['🇹🇼', '台湾']];
+  const types = ['Vless', 'Hysteria2', 'Trojan', 'Shadowsocks', 'Vmess'];
+  const proxies = {};
+  const nodes = [];
+  let seed = 7;
+  const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  regions.forEach(([flag, region], r) => {
+    for (let i = 1; i <= 4; i++) {
+      const name = `${flag} ${region} ${String(i).padStart(2, '0')}`;
+      const base = [45, 70, 95, 180, 85][r];
+      const delay = (r === 3 && i === 4) || (r === 4 && i === 3) ? 0 : Math.round(base + rand() * base * 0.8);
+      proxies[name] = { name, type: types[(r + i) % types.length], udp: i !== 3, history: [{ delay }], base };
+      nodes.push(name);
+    }
+  });
+  for (const t of ['Direct', 'Reject']) proxies[t.toUpperCase()] = { name: t.toUpperCase(), type: t, udp: true, history: [] };
+  const group = (name, type, all, now) => { proxies[name] = { name, type, all, now, history: [] }; };
+  group('节点选择', 'Selector', ['自动选择', '故障转移', ...nodes], nodes[1]);
+  group('自动选择', 'URLTest', nodes, nodes[0]);
+  group('故障转移', 'Fallback', nodes, nodes[0]);
+  group('流媒体', 'Selector', ['节点选择', ...nodes.filter((n) => !n.includes('美国'))], nodes[5]);
+  group('直连兜底', 'Selector', ['DIRECT', '节点选择'], 'DIRECT');
+  group('GLOBAL', 'Selector', ['DIRECT', 'REJECT', '节点选择', '自动选择', '故障转移', '流媒体', '直连兜底', ...nodes], '节点选择');
+
+  const marks = {};
+  const seedMarks = { [nodes[0]]: 'good', [nodes[1]]: 'good', [nodes[5]]: 'good', [nodes[9]]: 'good',
+    [nodes[2]]: 'warn', [nodes[12]]: 'warn', [nodes[15]]: 'bad', [nodes[18]]: 'bad', [nodes[7]]: 'bad' };
+  for (const n of nodes) marks[n] = { mark: seedMarks[n] || null, firstSeen: '2026-01-01T00:00:00.000Z' };
+
+  function test(name) {
+    const p = proxies[name];
+    if (!p || p.type === 'Direct' || p.type === 'Reject') return 0;
+    if (p.all) { const d = test(p.now); p.history = [{ delay: d }]; return d; }
+    const timeout = p.history.length && p.history[p.history.length - 1].delay === 0;
+    const delay = timeout ? 0 : Math.round(p.base + rand() * p.base * 0.8);
+    p.history = [{ delay }];
+    return delay;
+  }
+
+  function request(method, apiPath, body) {
+    const url = new URL(apiPath, 'http://demo');
+    const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    if (method === 'GET' && url.pathname === '/proxies') return { status: 200, json: { proxies } };
+    if (method === 'GET' && url.pathname === '/configs') return { status: 200, json: { mode: 'rule' } };
+    if (method === 'PUT' && parts[0] === 'proxies' && proxies[parts[1]]) {
+      proxies[parts[1]].now = body.name;
+      return { status: 204, json: null };
+    }
+    if (parts[0] === 'proxies' && parts[2] === 'delay') {
+      const d = test(parts[1]);
+      return d ? { status: 200, json: { delay: d } } : { status: 504, json: { message: 'Timeout' } };
+    }
+    if (parts[0] === 'group' && parts[2] === 'delay' && proxies[parts[1]]) {
+      const out = {};
+      for (const n of proxies[parts[1]].all) { const d = test(n); if (d) out[n] = d; }
+      return { status: 200, json: out };
+    }
+    return { status: 404, json: { message: 'not found' } };
+  }
+
+  return { request, profiles: { demo: { name: '示例订阅', syncedAt: null, nodes: marks, removed: [] } } };
+})();
+
 // ---------- 调内核接口 ----------
 
 let core = null;   // 出错时清空，下次重新读配置（Clash Verge 重启后管道名可能会变）
 
 function coreRequest(method, apiPath, body, retried = false) {
+  if (DEMO) {
+    const r = demo.request(method, apiPath, body);
+    // 测速稍微等一下，看起来像真的在测
+    return new Promise((resolve) => setTimeout(() => resolve(r), apiPath.includes('delay') ? 400 : 0));
+  }
   return new Promise((resolve, reject) => {
     let c;
     try { c = core || (core = resolveCore()); } catch (e) { return reject(e); }
@@ -177,6 +251,7 @@ async function coreGet(apiPath) {
 // { version, profiles: { <uid>: { name, syncedAt, nodes: { <节点名>: { mark, firstSeen, markedAt } }, removed: [...] } } }
 
 function loadMarks() {
+  if (DEMO) return { version: 1, profiles: demo.profiles };
   try {
     const m = JSON.parse(fs.readFileSync(MARKS_FILE, 'utf8').replace(/^﻿/, ''));
     if (m && m.profiles) return m;
@@ -191,6 +266,7 @@ function loadMarks() {
 let marks = null;
 
 function saveMarks() {
+  if (DEMO) return;
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const tmp = `${MARKS_FILE}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(marks, null, 2), 'utf8');
@@ -271,7 +347,7 @@ async function buildState() {
   if (entry) for (const [n, info] of Object.entries(entry.nodes)) if (info.mark) nodeMarks[n] = info.mark;
 
   return {
-    profile, mode, groups, nodes,
+    demo: DEMO, profile, mode, groups, nodes,
     marks: nodeMarks,
     realCount: realNames.size,
     removedRecent: entry ? entry.removed.slice(-20).reverse() : [],
@@ -361,10 +437,11 @@ function serve() {
     process.exit(1);
   });
   server.listen(PORT, '127.0.0.1', () => {
+    console.log(`${APP} ${VERSION}${DEMO ? '（演示模式）' : ''}`);
+    console.log(`页面：http://127.0.0.1:${PORT}`);
+    if (DEMO) return console.log('演示模式用的是假数据，不连内核，标记只存在内存里，停掉服务就没了');
     let how;
     try { how = resolveCore().label; } catch (e) { how = `（暂时连不上：${e.message}）`; }
-    console.log(`${APP} ${VERSION}`);
-    console.log(`页面：http://127.0.0.1:${PORT}`);
     console.log(`内核：${how}`);
     console.log(`标记文件：${MARKS_FILE}`);
   });
@@ -409,8 +486,8 @@ async function openCommand() {
   }
   if (state === 'free') {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    const log = fs.openSync(LOG_FILE, 'w');
-    const child = spawn(process.execPath, [__filename, 'serve', '--port', String(PORT)], {
+    const log = fs.openSync(DEMO ? LOG_FILE.replace(/\.log$/, '-demo.log') : LOG_FILE, 'w');
+    const child = spawn(process.execPath, [__filename, 'serve', '--port', String(PORT), ...(DEMO ? ['--demo'] : [])], {
       detached: true, stdio: ['ignore', log, log], windowsHide: true,
     });
     child.unref();
@@ -441,6 +518,6 @@ if (command === 'serve') serve();
 else if (command === 'stop') stopCommand();
 else if (command === 'open') openCommand();
 else {
-  console.log('用法：node nodemark.js [serve | stop] [--port 端口] [--no-open]');
+  console.log('用法：node nodemark.js [serve | stop] [--port 端口] [--no-open] [--demo]');
   process.exit(1);
 }

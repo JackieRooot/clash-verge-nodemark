@@ -185,6 +185,7 @@ const testing = new Set();          // 正在测速的节点名 / 'group:组名'
 const prefs = (() => {
   try { return JSON.parse(localStorage.getItem('nodeMarksPrefs')) || {}; } catch { return {}; }
 })();
+let firstVisit = !prefs.open;     // 第一次打开时默认展开第一个组
 prefs.open = prefs.open || {};
 function savePrefs() { try { localStorage.setItem('nodeMarksPrefs', JSON.stringify(prefs)); } catch {} }
 
@@ -252,7 +253,7 @@ function sortedMembers(g) {
 function render() {
   const s = state;
   $('profile').className = 'chip';
-  $('profile').textContent = `订阅：${s.profile.name}　·　${{ rule: '规则', global: '全局', direct: '直连' }[s.mode] || s.mode}模式`;
+  $('profile').textContent = `${s.demo ? '演示数据　·　' : ''}订阅：${s.profile.name}　·　${{ rule: '规则', global: '全局', direct: '直连' }[s.mode] || s.mode}模式`;
 
   const c = { good: 0, warn: 0, bad: 0 };
   for (const m of Object.values(s.marks)) c[m]++;
@@ -266,6 +267,8 @@ function render() {
     $('main').innerHTML = `<div class="empty">${s.mode === 'direct' ? '当前是直连模式，没有代理组。' : '没有可显示的代理组。'}</div>`;
     return;
   }
+
+  if (firstVisit) { prefs.open[s.groups[0].name] = true; firstVisit = false; savePrefs(); }
 
   let html = '';
   for (const g of s.groups) {

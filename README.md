@@ -6,6 +6,10 @@
 
 不改 Clash Verge 的任何设置，也不用改它的源码重新编译。本工具直接连接 Clash Verge 自带的 mihomo 内核，读到的代理组、当前节点、延迟和 Clash Verge 里看到的一致。只有一个 Node.js 脚本，没有依赖。
 
+![页面截图：右键节点卡片弹出标记菜单，已标记的卡片显示绿、黄、红三色](docs/screenshot.jpg)
+
+<sub>截图用的是演示模式的假数据（`node nodemark.js --demo`）。</sub>
+
 ## 功能
 
 - **镜像代理组**：分组顺序、当前选中的节点、节点类型、延迟都和 Clash Verge 一样，每 3 秒刷新一次。
@@ -46,9 +50,12 @@ nodemark
 |---|---|
 | `node nodemark.js` | 服务没在运行就在后台启动，然后打开浏览器 |
 | `node nodemark.js --no-open` | 只启动，不打开浏览器 |
-| `node nodemark.js serve` | 在前台运行服务，方便看日志 |
-| `node nodemark.js stop` | 停掉后台服务 |
+| `node nodemark.js stop` | 停掉后台服务。服务启动后会一直在后台运行，不用的时候用它关掉 |
+| `node nodemark.js serve` | 在当前终端前台运行服务，日志直接打印出来，按 Ctrl+C 停止。平时用不到，排查问题时用 |
+| `node nodemark.js --demo` | 演示模式：用假的节点数据，不需要装 Clash Verge，标记只存在内存里。默认端口 9098，停止用 `node nodemark.js stop --demo` |
 | `--port <端口>` | 换端口，默认 9099，各命令都能加 |
+
+想先看看效果，可以直接运行 `node nodemark.js --demo`。
 
 ### 设一个简写命令（可选）
 

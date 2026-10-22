@@ -6,6 +6,10 @@ Rate the nodes in [Clash Verge Rev](https://github.com/clash-verge-rev/clash-ver
 
 It changes no Clash Verge settings and needs no patched build. It talks to the mihomo core that Clash Verge already runs, so the groups, selected nodes and delays match what Clash Verge shows. It is a single Node.js script with no dependencies.
 
+![Screenshot: right-clicking a node card opens the mark menu; marked cards show green, amber or red](docs/screenshot.jpg)
+
+<sub>The screenshot uses the fake data of demo mode (`node nodemark.js --demo`).</sub>
+
 > The page itself is in Chinese. The labels are few: 好用 = good, 一般 = so-so, 不建议 = avoid, 测全组 = test the whole group, 测速 = test delay.
 
 ## Features
@@ -48,9 +52,12 @@ This starts the service in the background and opens http://127.0.0.1:9099 in you
 |---|---|
 | `node nodemark.js` | Start the service in the background if needed, then open the browser |
 | `node nodemark.js --no-open` | Start the service without opening the browser |
-| `node nodemark.js serve` | Run the service in the foreground, useful for reading logs |
-| `node nodemark.js stop` | Stop the background service |
+| `node nodemark.js stop` | Stop the background service. Once started, the service keeps running in the background; use this when you no longer need it |
+| `node nodemark.js serve` | Run the service in the current terminal with its log printed there; press Ctrl+C to stop. Not needed day to day, only for troubleshooting |
+| `node nodemark.js --demo` | Demo mode: fake node data, no Clash Verge needed, marks kept in memory only. Default port 9098; stop it with `node nodemark.js stop --demo` |
 | `--port <port>` | Use another port (default 9099); works with every command |
+
+To see what it looks like first, just run `node nodemark.js --demo`.
 
 ### A short command (optional)
 
