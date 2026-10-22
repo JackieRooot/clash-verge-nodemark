@@ -46,7 +46,7 @@ npm install -g github:JackieRooot/clash-verge-nodemark
 nodemark
 ```
 
-This starts the service in the background and opens http://127.0.0.1:9099 in your default browser. If the service is already running, it only opens the browser. Closing the terminal does not stop the service; **closing all of its pages does: the background service exits 15 seconds after the last page closes** (a page reload doesn't count). Just run it again next time.
+This starts the service in the background and, after a 3-second countdown, opens http://127.0.0.1:9099 in your default browser (press Ctrl+C during the countdown to skip opening it). If the service is already running, it only opens the browser. Closing the terminal does not stop the service; **closing all of its pages does: the background service exits 15 seconds after the last page closes** (a page reload doesn't count). Just run it again next time.
 
 | Command | What it does |
 |---|---|

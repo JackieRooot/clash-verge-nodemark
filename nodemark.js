@@ -32,6 +32,7 @@ function option(name) {
 const command = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--port')[0] || 'open';
 const NO_OPEN = argv.includes('--no-open');
 const KEEP = argv.includes('--keep');
+const OPEN_DELAY_S = 3;           // 打开浏览器前倒数的秒数
 const DEMO = argv.includes('--demo');
 const PORT = Number(option('--port') || (!DEMO && process.env.NODEMARK_PORT)) || (DEMO ? 9098 : 9099);
 
@@ -531,7 +532,19 @@ async function openCommand() {
   } else {
     console.log(`服务已在运行：${url}`);
   }
-  if (!NO_OPEN) openBrowser(url);
+  if (NO_OPEN) return;
+  // 先倒数几秒再打开，免得一回车就被切到浏览器、来不及看终端输出
+  process.once('SIGINT', () => {
+    console.log(`\n已取消打开浏览器。服务还在后台运行，可以手动访问 ${url}，或用 node nodemark.js stop 停掉`);
+    process.exit(0);
+  });
+  for (let s = OPEN_DELAY_S; s > 0; s--) {
+    const line = `${s} 秒后自动打开浏览器（按 Ctrl+C 取消）`;
+    if (process.stdout.isTTY) process.stdout.write(`\r\x1b[2K${line}`); else if (s === OPEN_DELAY_S) console.log(line);
+    await sleep(1000);
+  }
+  if (process.stdout.isTTY) process.stdout.write('\r\x1b[2K正在打开浏览器……\n');
+  openBrowser(url);
 }
 
 async function stopCommand() {
