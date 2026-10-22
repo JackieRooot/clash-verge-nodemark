@@ -46,13 +46,14 @@ npm install -g github:JackieRooot/clash-verge-nodemark
 nodemark
 ```
 
-This starts the service in the background and opens http://127.0.0.1:9099 in your default browser. If the service is already running, it only opens the browser. Closing the terminal does not stop the service.
+This starts the service in the background and opens http://127.0.0.1:9099 in your default browser. If the service is already running, it only opens the browser. Closing the terminal does not stop the service; **closing all of its pages does: the background service exits 15 seconds after the last page closes** (a page reload doesn't count). Just run it again next time.
 
 | Command | What it does |
 |---|---|
 | `node nodemark.js` | Start the service in the background if needed, then open the browser |
-| `node nodemark.js --no-open` | Start the service without opening the browser |
-| `node nodemark.js stop` | Stop the background service. Once started, the service keeps running in the background; use this when you no longer need it |
+| `node nodemark.js --keep` | Same, but the service keeps running after you close the pages |
+| `node nodemark.js --no-open` | Start the service without opening the browser; it does not exit on its own |
+| `node nodemark.js stop` | Stop the background service by hand: for services started with `--keep` or `--no-open`, or to stop one right away |
 | `node nodemark.js serve` | Run the service in the current terminal with its log printed there; press Ctrl+C to stop. Not needed day to day, only for troubleshooting |
 | `node nodemark.js --demo` | Demo mode: fake node data, no Clash Verge needed, marks kept in memory only. Default port 9098; stop it with `node nodemark.js stop --demo` |
 | `--port <port>` | Use another port (default 9099); works with every command |
@@ -131,6 +132,8 @@ With `CLASH_API` you can also point it at other clients built on the mihomo / Cl
 ## Troubleshooting
 
 **The page says it can't reach the mihomo core**: Clash Verge is not running, or the core is restarting. Open Clash Verge and wait a few seconds; the page recovers on its own.
+
+**The page says the local service has stopped**: the background service exited on its own; run `node nodemark.js` again. If this happens while the page is still open, the browser's memory saving (for example Chrome's Memory Saver) has most likely frozen a tab you hadn't looked at for a while, so the service thought the page was closed. Start with `--keep` to avoid it.
 
 **Port already in use**: pick another one with `--port`.
 

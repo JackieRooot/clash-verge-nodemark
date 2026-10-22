@@ -44,13 +44,14 @@ npm install -g github:JackieRooot/clash-verge-nodemark
 nodemark
 ```
 
-运行后会在后台启动服务，并用默认浏览器打开 http://127.0.0.1:9099 。服务已经在运行时只打开浏览器。关掉终端不影响后台服务。
+运行后会在后台启动服务，并用默认浏览器打开 http://127.0.0.1:9099 。服务已经在运行时只打开浏览器。关掉终端不影响后台服务；**关掉所有页面 15 秒后，后台服务会自动退出**（刷新页面不算关掉），下次用时再运行一次就行。
 
 | 命令 | 作用 |
 |---|---|
 | `node nodemark.js` | 服务没在运行就在后台启动，然后打开浏览器 |
-| `node nodemark.js --no-open` | 只启动，不打开浏览器 |
-| `node nodemark.js stop` | 停掉后台服务。服务启动后会一直在后台运行，不用的时候用它关掉 |
+| `node nodemark.js --keep` | 同上，但关掉页面后服务不自动退出 |
+| `node nodemark.js --no-open` | 只启动，不打开浏览器，也不自动退出 |
+| `node nodemark.js stop` | 手动停掉后台服务，用于 `--keep`、`--no-open` 启动的服务，或者想立刻停掉的时候 |
 | `node nodemark.js serve` | 在当前终端前台运行服务，日志直接打印出来，按 Ctrl+C 停止。平时用不到，排查问题时用 |
 | `node nodemark.js --demo` | 演示模式：用假的节点数据，不需要装 Clash Verge，标记只存在内存里。默认端口 9098，停止用 `node nodemark.js stop --demo` |
 | `--port <端口>` | 换端口，默认 9099，各命令都能加 |
@@ -129,6 +130,8 @@ Clash Verge 的数据目录默认在：
 ## 常见问题
 
 **页面显示「连不上 mihomo 内核」**：Clash Verge 没开，或者内核正在重启。打开 Clash Verge 后等几秒，页面会自动恢复。
+
+**页面显示「本地服务已停止」**：后台服务已经自动退出了，重新运行一次 `node nodemark.js` 就行。如果页面没关也遇到这种情况，多半是浏览器的省内存功能（比如 Chrome 的 Memory Saver）把长时间没看的标签页冻结了，服务以为页面关掉了。不想遇到的话，用 `--keep` 启动。
 
 **提示端口被占用**：用 `--port` 换一个端口。
 

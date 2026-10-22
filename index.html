@@ -219,7 +219,8 @@ async function refresh(force) {
     render();
   } catch (e) {
     $('profile').className = 'chip err';
-    $('profile').textContent = e.message;
+    // fetch 直接失败说明本地服务没了（比如所有页面关掉后它自动退出了），而不是内核的问题
+    $('profile').textContent = e instanceof TypeError ? '本地服务已停止，在终端重新运行 nodemark（或 node nodemark.js）' : e.message;
   }
 }
 
@@ -415,6 +416,9 @@ for (const id of ['q', 'sort', 'hideBad', 'onlyMarked']) {
     if (state) render();
   });
 }
+
+// 和服务保持一条长连接：所有页面都关掉后，后台服务据此自动退出。断了浏览器会自己重连
+try { new EventSource('/api/alive'); } catch {}
 
 refresh(true);
 setInterval(() => { if (menu.style.display !== 'block' && !document.hidden) refresh(); }, POLL_MS);

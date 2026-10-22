@@ -8,7 +8,9 @@
 //   node nodemark.js serve    在前台运行服务（看日志、调试用）
 //   node nodemark.js stop     停掉后台服务
 // 选项：--port <端口>（默认 9099）、--no-open（只启动不开浏览器）、
+//       --keep（关掉页面后也不自动退出）、
 //       --demo（演示模式：用假数据，不连内核、不写标记文件，默认端口 9098）
+// 后台启动的服务在所有页面都关掉 15 秒后自动退出；带 --no-open 或 --keep 启动的不会。
 
 'use strict';
 const http = require('http');
@@ -29,6 +31,7 @@ function option(name) {
 }
 const command = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--port')[0] || 'open';
 const NO_OPEN = argv.includes('--no-open');
+const KEEP = argv.includes('--keep');
 const DEMO = argv.includes('--demo');
 const PORT = Number(option('--port') || (!DEMO && process.env.NODEMARK_PORT)) || (DEMO ? 9098 : 9099);
 
@@ -383,6 +386,31 @@ function readBody(req) {
   });
 }
 
+// 自动退出：后台启动的服务在所有页面都关掉、过了 EXIT_GRACE_MS 还没有页面连回来时退出。
+// 留一段宽限期，刷新页面时不会误退出；从来没有页面连上过就不退出（比如 --no-open 启动）。
+const AUTO_EXIT = argv.includes('--auto-exit');
+const EXIT_GRACE_MS = 15000;
+let pages = 0;
+let exitTimer = null;
+
+function keepAlive(req, res) {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+  res.write(': connected\n\n');
+  pages++;
+  clearTimeout(exitTimer);
+  const beat = setInterval(() => res.write(': ping\n\n'), 25000);
+  req.on('close', () => {
+    clearInterval(beat);
+    pages--;
+    if (!AUTO_EXIT || pages > 0) return;
+    exitTimer = setTimeout(() => {
+      if (pages > 0) return;
+      console.log('页面都关掉了，服务自动退出');
+      process.exit(0);
+    }, EXIT_GRACE_MS);
+  });
+}
+
 function serve() {
   marks = loadMarks();
   const allowedHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
@@ -395,6 +423,8 @@ function serve() {
     if (url.pathname === '/' && req.method === 'GET') {
       return send(res, 200, fs.readFileSync(PAGE_FILE, 'utf8'), 'text/html; charset=utf-8');
     }
+    // 页面用 EventSource 连着这里（EventSource 带不了自定义请求头，所以放在请求头检查前面；它只回心跳，不做任何操作）
+    if (url.pathname === '/api/alive' && req.method === 'GET') return keepAlive(req, res);
     if (!url.pathname.startsWith('/api/')) return send(res, 404, { error: 'not found' });
     if (req.headers['x-node-marks'] !== '1') return send(res, 403, { error: 'missing header' });
 
@@ -487,7 +517,8 @@ async function openCommand() {
   if (state === 'free') {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     const log = fs.openSync(DEMO ? LOG_FILE.replace(/\.log$/, '-demo.log') : LOG_FILE, 'w');
-    const child = spawn(process.execPath, [__filename, 'serve', '--port', String(PORT), ...(DEMO ? ['--demo'] : [])], {
+    const extra = [...(DEMO ? ['--demo'] : []), ...(NO_OPEN || KEEP ? [] : ['--auto-exit'])];
+    const child = spawn(process.execPath, [__filename, 'serve', '--port', String(PORT), ...extra], {
       detached: true, stdio: ['ignore', log, log], windowsHide: true,
     });
     child.unref();
@@ -496,7 +527,7 @@ async function openCommand() {
       console.error(`服务没能启动，日志：${LOG_FILE}`);
       process.exit(1);
     }
-    console.log(`已在后台启动：${url}`);
+    console.log(`已在后台启动：${url}${NO_OPEN || KEEP ? '' : '（关掉页面后会自动退出）'}`);
   } else {
     console.log(`服务已在运行：${url}`);
   }
@@ -518,6 +549,6 @@ if (command === 'serve') serve();
 else if (command === 'stop') stopCommand();
 else if (command === 'open') openCommand();
 else {
-  console.log('用法：node nodemark.js [serve | stop] [--port 端口] [--no-open] [--demo]');
+  console.log('用法：node nodemark.js [serve | stop] [--port 端口] [--no-open] [--keep] [--demo]');
   process.exit(1);
 }
