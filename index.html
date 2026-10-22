@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>节点标记</title>
+<style>
+  /* Windows 自带字体不画国旗 emoji，只给国旗那段字符补一个字体（加载失败就退回成字母） */
+  @font-face {
+    font-family: "Twemoji Country Flags";
+    unicode-range: U+1F1E6-1F1FF, U+1F3F4, U+E0062-E0063, U+E0065, U+E0067, U+E006C, U+E006E, U+E0073-E0074, U+E0077, U+E007F;
+    src: url("https://cdn.jsdelivr.net/npm/country-flag-emoji-polyfill@0.1/dist/TwemojiCountryFlags.woff2") format("woff2");
+    font-display: swap;
+  }
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --card: #ffffff; --card-hover: #f0f3f8;
+    --text: #1f2329; --muted: #6b7280; --line: #e3e6eb;
+    --primary: #1976d2; --primary-bg: rgba(25, 118, 210, 0.12);
+    --good: #16a34a; --good-bg: rgba(22, 163, 74, 0.08);
+    --warn: #d97706; --warn-bg: rgba(217, 119, 6, 0.09);
+    --bad: #dc2626; --bad-bg: rgba(220, 38, 38, 0.08);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181b; --panel: #1f2125; --card: #26292e; --card-hover: #2e3238;
+      --text: #e6e8eb; --muted: #9aa1ab; --line: #34383f;
+      --primary: #5aa9f5; --primary-bg: rgba(90, 169, 245, 0.16);
+      --good: #34c46a; --good-bg: rgba(52, 196, 106, 0.10);
+      --warn: #f0a530; --warn-bg: rgba(240, 165, 48, 0.11);
+      --bad: #f2615b; --bad-bg: rgba(242, 97, 91, 0.11);
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Twemoji Country Flags", -apple-system, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10; background: var(--panel);
+    border-bottom: 1px solid var(--line); padding: 10px 16px;
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px;
+    border-radius: 999px; background: var(--primary-bg); color: var(--primary); font-size: 12.5px;
+  }
+  .chip.err { background: var(--bad-bg); color: var(--bad); }
+  .counts { display: flex; gap: 10px; font-size: 13px; color: var(--muted); }
+  .counts b { font-weight: 600; }
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
+  input[type=search], select {
+    height: 30px; border: 1px solid var(--line); border-radius: 6px; padding: 0 8px;
+    background: var(--card); color: var(--text); font: inherit; font-size: 13px;
+  }
+  input[type=search] { width: 180px; }
+  label.toggle { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+  main { padding: 12px 16px 40px; max-width: 1600px; margin: 0 auto; }
+
+  .group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; box-shadow: var(--shadow); }
+  .ghead {
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; user-select: none;
+  }
+  .ghead .gname { font-weight: 600; font-size: 15px; }
+  .ghead .gsub { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ghead .gtitle { min-width: 0; flex: 1; }
+  .ghead .gmarks { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .ghead button, .btn {
+    border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 6px;
+    height: 28px; padding: 0 10px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  .ghead button:hover, .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .chev { color: var(--muted); transition: transform .15s; }
+  .group.open .chev { transform: rotate(90deg); }
+  .grid { display: none; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; padding: 0 14px 14px; }
+  .group.open .grid { display: grid; }
+
+  .card {
+    position: relative; background: var(--card); border: 1.5px solid var(--line); border-radius: 8px;
+    padding: 8px 10px 7px; cursor: pointer; min-height: 58px; transition: background .1s;
+  }
+  .card:hover { background: var(--card-hover); }
+  .card.sel { background: var(--primary-bg); border-color: var(--primary); }
+  .card.sel .name { color: var(--primary); }
+  .card.locked { cursor: default; }
+  .name { font-size: 13px; font-weight: 500; word-break: break-all; padding-right: 18px;
+          display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+  .tag { border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; line-height: 16px; }
+  .delay { margin-left: auto; font-variant-numeric: tabular-nums; padding: 0 2px; border-radius: 4px; }
+  .delay:hover { background: var(--primary-bg); color: var(--primary); }
+  .delay.d-fast { color: var(--good); }
+  .delay.d-mid { color: var(--warn); }
+  .delay.d-slow, .delay.d-timeout { color: var(--bad); }
+  .delay.d-none { opacity: .55; }
+
+  /* 质量标记：边框 + 右上角徽标 + 底色 */
+  .card.m-good { border-color: var(--good); background-image: linear-gradient(var(--good-bg), var(--good-bg)); }
+  .card.m-warn { border-color: var(--warn); background-image: linear-gradient(var(--warn-bg), var(--warn-bg)); }
+  .card.m-bad  { border-color: var(--bad);  background-image: linear-gradient(var(--bad-bg), var(--bad-bg)); }
+  .card.m-bad .name { opacity: .8; }
+  .card.sel.m-good, .card.sel.m-warn, .card.sel.m-bad { box-shadow: inset 0 0 0 1.5px var(--primary); }
+  .badge {
+    position: absolute; top: 6px; right: 6px; width: 17px; height: 17px; border-radius: 50%;
+    color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; line-height: 1;
+  }
+  .badge.good { background: var(--good); }
+  .badge.warn { background: var(--warn); }
+  .badge.bad  { background: var(--bad); }
+
+  #menu {
+    position: fixed; z-index: 100; display: none; min-width: 168px; padding: 4px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  }
+  #menu .mtitle { font-size: 12px; color: var(--muted); padding: 5px 9px 6px; border-bottom: 1px solid var(--line); margin-bottom: 3px;
+                  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #menu button {
+    display: flex; width: 100%; align-items: center; gap: 8px; border: 0; background: none; color: var(--text);
+    font: inherit; font-size: 13px; padding: 6px 9px; border-radius: 5px; cursor: pointer; text-align: left;
+  }
+  #menu button:hover { background: var(--card-hover); }
+  #menu button.cur { font-weight: 600; }
+  #menu button.cur::after { content: "当前"; margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 400; }
+  #menu .badge { position: static; }
+  #menu .hint { font-size: 12.5px; color: var(--muted); padding: 6px 9px; }
+
+  .removed { margin-top: 18px; font-size: 13px; color: var(--muted); }
+  .removed summary { cursor: pointer; }
+  .removed li { margin: 2px 0; }
+  .empty { color: var(--muted); padding: 30px; text-align: center; }
+  #toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 200;
+    background: var(--text); color: var(--bg); padding: 7px 14px; border-radius: 6px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  #toast.show { opacity: .92; }
+  @media (max-width: 640px) {
+    header, main { padding-left: 16px; padding-right: 16px; }
+    .tools { margin-left: 0; }
+    input[type=search] { width: 140px; }
+    .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>节点标记</h1>
+  <span id="profile" class="chip">连接中…</span>
+  <span class="counts" id="counts"></span>
+  <div class="tools">
+    <input type="search" id="q" placeholder="搜索节点">
+    <select id="sort" title="排序">
+      <option value="default">默认顺序</option>
+      <option value="delay">按延迟</option>
+      <option value="mark">按标记</option>
+      <option value="markDelay">按标记+延迟</option>
+      <option value="name">按名称</option>
+    </select>
+    <label class="toggle"><input type="checkbox" id="hideBad">隐藏不建议</label>
+    <label class="toggle"><input type="checkbox" id="onlyMarked">只看已标记</label>
+  </div>
+</header>
+<main id="main"><div class="empty">正在读取 Clash Verge…</div></main>
+<div id="menu"></div>
+<div id="toast"></div>
+
+<script>
+const MARK_INFO = {
+  good: { label: '好用', icon: '✓' },
+  warn: { label: '一般', icon: '!' },
+  bad:  { label: '不建议', icon: '✕' },
+};
+const MARK_ORDER = { good: 0, warn: 1, null: 2, bad: 3 };
+const SELECTABLE = new Set(['Selector', 'URLTest', 'Fallback']);
+const POLL_MS = 3000;
+
+let state = null;
+let lastJson = '';
+const testing = new Set();          // 正在测速的节点名 / 'group:组名'
+
+// 每个浏览器自己的界面偏好（展开的组、筛选），存不了也不影响使用
+const prefs = (() => {
+  try { return JSON.parse(localStorage.getItem('nodeMarksPrefs')) || {}; } catch { return {}; }
+})();
+prefs.open = prefs.open || {};
+function savePrefs() { try { localStorage.setItem('nodeMarksPrefs', JSON.stringify(prefs)); } catch {} }
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function api(path, body) {
+  const r = await fetch(path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'X-Node-Marks': '1', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+async function refresh(force) {
+  try {
+    const s = await api('/api/state');
+    const json = JSON.stringify(s);
+    if (!force && json === lastJson) return;
+    lastJson = json; state = s;
+    render();
+  } catch (e) {
+    $('profile').className = 'chip err';
+    $('profile').textContent = e.message;
+  }
+}
+
+function delayView(name, d) {
+  if (testing.has(name)) return { cls: 'd-none', text: '测速中…' };
+  if (d === null || d === undefined) return { cls: 'd-none', text: '测速' };
+  if (d === 0) return { cls: 'd-timeout', text: '超时' };
+  return { cls: d < 400 ? 'd-fast' : d < 1000 ? 'd-mid' : 'd-slow', text: d + ' ms' };
+}
+
+function sortedMembers(g) {
+  const q = $('q').value.trim().toLowerCase();
+  const hideBad = $('hideBad').checked, onlyMarked = $('onlyMarked').checked;
+  let list = g.all.filter((n) => {
+    const m = state.marks[n] || null;
+    if (q && !n.toLowerCase().includes(q)) return false;
+    if (hideBad && m === 'bad') return false;
+    if (onlyMarked && !m) return false;
+    return true;
+  });
+  const sort = $('sort').value;
+  const markKey = (n) => MARK_ORDER[state.marks[n] || null];
+  const delayKey = (n) => { const d = state.nodes[n] && state.nodes[n].delay; return d ? d : d === 0 ? 1e9 : 1e9 + 1; };
+  if (sort === 'delay') list = [...list].sort((a, b) => delayKey(a) - delayKey(b));
+  else if (sort === 'name') list = [...list].sort((a, b) => a.localeCompare(b, 'zh'));
+  else if (sort === 'mark') list = [...list].sort((a, b) => markKey(a) - markKey(b));
+  else if (sort === 'markDelay') list = [...list].sort((a, b) => markKey(a) - markKey(b) || delayKey(a) - delayKey(b));
+  return list;
+}
+
+function render() {
+  const s = state;
+  $('profile').className = 'chip';
+  $('profile').textContent = `订阅：${s.profile.name}　·　${{ rule: '规则', global: '全局', direct: '直连' }[s.mode] || s.mode}模式`;
+
+  const c = { good: 0, warn: 0, bad: 0 };
+  for (const m of Object.values(s.marks)) c[m]++;
+  $('counts').innerHTML =
+    `<span style="color:var(--good)">✓ <b>${c.good}</b></span>` +
+    `<span style="color:var(--warn)">! <b>${c.warn}</b></span>` +
+    `<span style="color:var(--bad)">✕ <b>${c.bad}</b></span>` +
+    `<span>共 ${s.realCount} 个节点${s.syncing ? '（清单同步中）' : ''}</span>`;
+
+  if (!s.groups.length) {
+    $('main').innerHTML = `<div class="empty">${s.mode === 'direct' ? '当前是直连模式，没有代理组。' : '没有可显示的代理组。'}</div>`;
+    return;
+  }
+
+  let html = '';
+  for (const g of s.groups) {
+    const open = !!prefs.open[g.name];
+    const members = sortedMembers(g);
+    const gm = { good: 0, warn: 0, bad: 0 };
+    for (const n of g.all) if (s.marks[n]) gm[s.marks[n]]++;
+    const gTesting = testing.has('group:' + g.name);
+    html += `<section class="group${open ? ' open' : ''}" data-group="${esc(g.name)}">
+      <div class="ghead" data-act="toggle">
+        <span class="chev">▶</span>
+        <div class="gtitle">
+          <div class="gname">${esc(g.name)}</div>
+          <div class="gsub">${esc(g.type)} · ${esc(g.now || '—')}${g.fixed ? '（已固定）' : ''}</div>
+        </div>
+        <span class="gmarks">${g.all.length} 个 · <span style="color:var(--good)">✓${gm.good}</span> <span style="color:var(--warn)">!${gm.warn}</span> <span style="color:var(--bad)">✕${gm.bad}</span></span>
+        <button data-act="testGroup"${gTesting ? ' disabled' : ''}>${gTesting ? '测速中…' : '测全组'}</button>
+      </div>
+      <div class="grid">`;
+    if (open) {
+      for (const n of members) {
+        const node = s.nodes[n] || { type: '?' };
+        const m = s.marks[n] || '';
+        const sel = g.now === n;
+        const dv = delayView(n, node.delay);
+        const locked = !SELECTABLE.has(g.type);
+        html += `<div class="card${sel ? ' sel' : ''}${m ? ' m-' + m : ''}${locked ? ' locked' : ''}" data-node="${esc(n)}" title="${esc(n)}">
+          ${m ? `<span class="badge ${m}">${MARK_INFO[m].icon}</span>` : ''}
+          <div class="name">${esc(n)}</div>
+          <div class="meta">
+            <span class="tag">${esc(node.isGroup ? '组·' + node.type : node.type)}</span>
+            ${node.udp && !node.isGroup ? '<span class="tag">UDP</span>' : ''}
+            <span class="delay ${dv.cls}" data-act="testNode">${dv.text}</span>
+          </div>
+        </div>`;
+      }
+      if (!members.length) html += `<div class="empty" style="grid-column:1/-1;padding:12px">没有符合筛选条件的节点</div>`;
+    }
+    html += `</div></section>`;
+  }
+
+  if (s.removedRecent.length) {
+    html += `<details class="removed"><summary>最近因节点消失而移除的标记（${s.removedRecent.length}）</summary><ul>` +
+      s.removedRecent.map((r) => `<li><span class="badge ${r.mark}" style="position:static;display:inline-grid;vertical-align:-3px">${MARK_INFO[r.mark].icon}</span> ${esc(r.name)} <span style="opacity:.7">· ${new Date(r.removedAt).toLocaleString()}</span></li>`).join('') +
+      `</ul></details>`;
+  }
+  $('main').innerHTML = html;
+}
+
+// ---------- 交互 ----------
+
+$('main').addEventListener('click', async (e) => {
+  const groupEl = e.target.closest('.group');
+  if (!groupEl) return;
+  const group = groupEl.dataset.group;
+  const act = e.target.closest('[data-act]');
+  const card = e.target.closest('.card');
+
+  if (act && act.dataset.act === 'testGroup') {
+    e.stopPropagation();
+    testing.add('group:' + group);
+    const g = state.groups.find((x) => x.name === group);
+    g.all.forEach((n) => testing.add(n));
+    render();
+    try { await api('/api/delay', { group }); } catch (err) { toast(err.message); }
+    testing.delete('group:' + group); g.all.forEach((n) => testing.delete(n));
+    return refresh(true);
+  }
+  if (act && act.dataset.act === 'toggle') {
+    prefs.open[group] = !prefs.open[group]; savePrefs(); return render();
+  }
+  if (act && act.dataset.act === 'testNode' && card) {
+    const name = card.dataset.node;
+    testing.add(name); render();
+    try {
+      const r = await api('/api/delay', { name });
+      if (!r.ok) toast(`${name}：${r.message || '超时'}`);
+    } catch (err) { toast(err.message); }
+    testing.delete(name);
+    return refresh(true);
+  }
+  if (card) {
+    const g = state.groups.find((x) => x.name === group);
+    const name = card.dataset.node;
+    if (!SELECTABLE.has(g.type) || g.now === name) return;
+    try {
+      await api('/api/select', { group, name });
+      g.now = name; render();
+      toast(`${group} → ${name}`);
+    } catch (err) { toast(err.message); }
+    refresh(true);
+  }
+});
+
+const menu = $('menu');
+let menuTarget = null;
+
+$('main').addEventListener('contextmenu', (e) => {
+  const card = e.target.closest('.card');
+  if (!card) return;
+  e.preventDefault();
+  const name = card.dataset.node;
+  const node = state.nodes[name] || {};
+  menuTarget = name;
+  const cur = state.marks[name] || null;
+  if (node.markable) {
+    menu.innerHTML = `<div class="mtitle">${esc(name)}</div>` +
+      Object.entries(MARK_INFO).map(([k, v]) =>
+        `<button data-mark="${k}" class="${cur === k ? 'cur' : ''}"><span class="badge ${k}">${v.icon}</span>${v.label}</button>`).join('') +
+      (cur ? `<button data-mark=""><span class="badge" style="background:var(--muted)">–</span>清除标记</button>` : '');
+  } else {
+    menu.innerHTML = `<div class="mtitle">${esc(name)}</div><div class="hint">${node.isGroup ? '这是代理组，不能标记' : '内置出站，不能标记'}</div>`;
+  }
+  menu.style.display = 'block';
+  const { innerWidth: W, innerHeight: H } = window;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.min(e.clientX, W - r.width - 8) + 'px';
+  menu.style.top = Math.min(e.clientY, H - r.height - 8) + 'px';
+});
+
+menu.addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-mark]');
+  if (!b) return;
+  const mark = b.dataset.mark || null;
+  hideMenu();
+  if (mark) state.marks[menuTarget] = mark; else delete state.marks[menuTarget];
+  render();
+  try { await api('/api/mark', { name: menuTarget, mark }); }
+  catch (err) { toast('保存失败：' + err.message); }
+  refresh(true);
+});
+
+function hideMenu() { menu.style.display = 'none'; }
+document.addEventListener('click', (e) => { if (!menu.contains(e.target)) hideMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
+window.addEventListener('scroll', hideMenu, true);
+window.addEventListener('blur', hideMenu);
+
+for (const id of ['q', 'sort', 'hideBad', 'onlyMarked']) {
+  const el = $(id);
+  if (id !== 'q' && prefs[id] !== undefined) el[el.type === 'checkbox' ? 'checked' : 'value'] = prefs[id];
+  el.addEventListener(id === 'q' ? 'input' : 'change', () => {
+    if (id !== 'q') { prefs[id] = el.type === 'checkbox' ? el.checked : el.value; savePrefs(); }
+    if (state) render();
+  });
+}
+
+refresh(true);
+setInterval(() => { if (menu.style.display !== 'block' && !document.hidden) refresh(); }, POLL_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>

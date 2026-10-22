@@ -1,0 +1,33 @@
+{
+  "name": "clash-verge-nodemark",
+  "version": "0.1.0",
+  "description": "Mirror Clash Verge Rev proxy groups in the browser and mark each node good / so-so / avoid with a right-click.",
+  "license": "MIT",
+  "author": "JackieRooot",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JackieRooot/clash-verge-nodemark.git"
+  },
+  "bin": {
+    "nodemark": "nodemark.js"
+  },
+  "files": [
+    "nodemark.js",
+    "index.html"
+  ],
+  "scripts": {
+    "start": "node nodemark.js",
+    "serve": "node nodemark.js serve",
+    "stop": "node nodemark.js stop"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "keywords": [
+    "clash",
+    "clash-verge",
+    "clash-verge-rev",
+    "mihomo",
+    "proxy"
+  ]
+}
