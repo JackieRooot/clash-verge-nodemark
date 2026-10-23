@@ -72,6 +72,8 @@
     height: 28px; padding: 0 10px; font: inherit; font-size: 12.5px; cursor: pointer;
   }
   .ghead button:hover, .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .ghead button:disabled, .btn:disabled { opacity: .5; cursor: default; border-color: var(--line); color: var(--text); }
+  .ghead .gbtns { display: flex; gap: 6px; }
   .chev { color: var(--muted); transition: transform .15s; }
   .group.open .chev { transform: rotate(90deg); }
   /* 组内节点分栏（宽屏 3 栏），每栏一行 2 个；节点先排满第一栏再排下一栏。
@@ -128,6 +130,7 @@
     font: inherit; font-size: 13px; padding: 6px 9px; border-radius: 5px; cursor: pointer; text-align: left;
   }
   #menu button:hover { background: var(--card-hover); }
+  #menu button:disabled { color: var(--muted); cursor: default; background: none; }
   #menu button.cur { font-weight: 600; }
   #menu button.cur::after { content: "当前"; margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 400; }
   #menu .badge { position: static; }
@@ -167,6 +170,7 @@
     </select>
     <label class="toggle"><input type="checkbox" id="hideBad">隐藏不建议</label>
     <label class="toggle"><input type="checkbox" id="onlyMarked">只看已标记</label>
+    <button class="btn" id="clearAll" title="取消当前订阅下所有节点的标记">取消全部标记</button>
   </div>
 </header>
 <main id="main"><div class="empty">正在读取 Clash Verge…</div></main>
@@ -185,7 +189,8 @@ const POLL_MS = 3000;
 
 let state = null;
 let lastJson = '';
-const testing = new Set();          // 正在测速的节点名 / 'group:组名'
+const testing = new Set();          // 正在测速的节点名 / 'group:组名'（测全组和仅测 ✓ ! 共用）
+const TEST_CONCURRENCY = 8;         // 仅测 ✓ ! 时同时测几个节点
 
 // 每个浏览器自己的界面偏好（展开的组、筛选），存不了也不影响使用
 const prefs = (() => {
@@ -294,6 +299,7 @@ function render() {
     `<span style="color:var(--warn)">! <b>${c.warn}</b></span>` +
     `<span style="color:var(--bad)">✕ <b>${c.bad}</b></span>` +
     `<span>共 ${s.realCount} 个节点${s.syncing ? '（清单同步中）' : ''}</span>`;
+  $('clearAll').disabled = !Object.keys(s.marks).length;
 
   if (!s.groups.length) {
     $('main').innerHTML = `<div class="empty">${s.mode === 'direct' ? '当前是直连模式，没有代理组。' : '没有可显示的代理组。'}</div>`;
@@ -322,7 +328,10 @@ function render() {
           <div class="gsub">${esc(g.type)} · ${esc(g.now || '—')}${g.fixed ? '（已固定）' : ''}${cvNote}</div>
         </div>
         <span class="gmarks">${g.all.length} 个 · <span style="color:var(--good)">✓${gm.good}</span> <span style="color:var(--warn)">!${gm.warn}</span> <span style="color:var(--bad)">✕${gm.bad}</span></span>
-        <button data-act="testGroup"${gTesting ? ' disabled' : ''}>${gTesting ? '测速中…' : '测全组'}</button>
+        <span class="gbtns">
+          <button data-act="testMarked" title="只测本组里标为 ✓ 好用、! 一般 的节点"${gTesting || !gm.good && !gm.warn ? ' disabled' : ''}>仅测 ✓ !</button>
+          <button data-act="testGroup"${gTesting ? ' disabled' : ''}>${gTesting ? '测速中…' : '测全组'}</button>
+        </span>
       </div>
       <div class="grid">`;
     if (open && members.length) {
@@ -379,6 +388,32 @@ $('main').addEventListener('click', async (e) => {
     testing.delete('group:' + group); g.all.forEach((n) => testing.delete(n));
     return refresh(true);
   }
+  if (act && act.dataset.act === 'testMarked') {
+    e.stopPropagation();
+    const g = state.groups.find((x) => x.name === group);
+    const names = g.all.filter((n) => ['good', 'warn'].includes(state.marks[n]));
+    if (!names.length) return;
+    testing.add('group:' + group);
+    names.forEach((n) => testing.add(n));
+    render();
+    // 逐个调单节点测速，几个一起测；每测完一个就先把结果显示出来，最后再整体刷新
+    let failed = 0;
+    const queue = [...names];
+    const worker = async () => {
+      for (let n; (n = queue.shift()) !== undefined;) {
+        try {
+          const r = await api('/api/delay', { name: n });
+          if (!r.ok) failed++;
+          if (state.nodes[n]) state.nodes[n].delay = r.ok ? r.delay : 0;
+        } catch (err) { failed++; }
+        testing.delete(n); render();
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(TEST_CONCURRENCY, names.length) }, worker));
+    testing.delete('group:' + group);
+    toast(`${group}：测了 ${names.length} 个 ✓ ! 节点${failed ? `，${failed} 个超时或失败` : ''}`);
+    return refresh(true);
+  }
   if (act && act.dataset.act === 'toggle') {
     prefs.open[group] = !prefs.open[group]; savePrefs(); return render();
   }
@@ -420,7 +455,7 @@ $('main').addEventListener('contextmenu', (e) => {
     menu.innerHTML = `<div class="mtitle">${esc(name)}</div>` +
       Object.entries(MARK_INFO).map(([k, v]) =>
         `<button data-mark="${k}" class="${cur === k ? 'cur' : ''}"><span class="badge ${k}">${v.icon}</span>${v.label}</button>`).join('') +
-      (cur ? `<button data-mark=""><span class="badge" style="background:var(--muted)">–</span>清除标记</button>` : '');
+      `<button data-mark=""${cur ? '' : ' disabled'}><span class="badge" style="background:var(--muted)">–</span>取消标记</button>`;
   } else {
     menu.innerHTML = `<div class="mtitle">${esc(name)}</div><div class="hint">${node.isGroup ? '这是代理组，不能标记' : '内置出站，不能标记'}</div>`;
   }
@@ -440,6 +475,22 @@ menu.addEventListener('click', async (e) => {
   render();
   try { await api('/api/mark', { name: menuTarget, mark }); }
   catch (err) { toast('保存失败：' + err.message); }
+  refresh(true);
+});
+
+$('clearAll').addEventListener('click', async () => {
+  const n = Object.keys(state.marks).length;
+  if (!n || !confirm(`取消订阅「${state.profile.name}」下全部 ${n} 个节点的标记？取消后不能恢复。`)) return;
+  const old = state.marks;
+  state.marks = {}; render();
+  try {
+    const r = await api('/api/clear-marks', {});
+    toast(`已取消 ${r.cleared} 个标记`);
+  } catch (err) {
+    state.marks = old; render();
+    // 页面每次刷新都是新的，后台服务要重启才有这个接口
+    toast(err.message === 'not found' ? '后台服务是旧版本：运行 node nodemark.js stop 后重新启动' : '取消失败：' + err.message);
+  }
   refresh(true);
 });
 

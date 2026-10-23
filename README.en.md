@@ -15,9 +15,9 @@ It changes no Clash Verge settings and needs no patched build. It talks to the m
 ## Features
 
 - **Mirrored proxy groups**: same group order, selected node, node type and delay as Clash Verge, refreshed every 3 seconds.
-- **Right-click to mark**: good / so-so / avoid / clear. Marked cards get a tinted background and a badge in the top-right corner (the colored frame is reserved for the currently selected node). Each group header shows how many nodes carry each mark.
+- **Right-click to mark**: good / so-so / avoid / unmark. Marked cards get a tinted background and a badge in the top-right corner (the colored frame is reserved for the currently selected node). Each group header shows how many nodes carry each mark. 取消全部标记 in the top bar removes every mark in the current profile (it asks first, and this can't be undone).
 - **Left-click to switch**: works like clicking in Clash Verge, and Clash Verge follows the change.
-- **Delay tests**: click the delay at the bottom-right of a card to test one node, or 测全组 to test a whole group. The test URL and timeout come from your Clash Verge settings.
+- **Delay tests**: click the delay at the bottom-right of a card to test one node, 测全组 to test a whole group, or 仅测 ✓ ! to test only the group's nodes marked good or so-so. The test URL and timeout come from your Clash Verge settings.
 - **Filter and sort**: search; sort by default order, CV order (按cv), delay, mark, mark then delay, or name; hide nodes marked avoid; show only marked nodes.
 - **CV order (按cv)**: each proxy group uses the sort order it has on the Clash Verge proxies page (default / by delay / by name). The group header shows which one applies (see "CV order" below).
 - **Columns inside each group**: proxy groups are stacked top to bottom, and the nodes inside each group are split into three columns with two nodes per row; nodes fill the first column before moving to the next. Narrow windows fall back to two columns, then one.
@@ -152,7 +152,7 @@ With `CLASH_API` you can also point it at other clients built on the mihomo / Cl
 
 **The page says the local service has stopped**: the background service exited on its own; run `node nodemark.js` again. If this happens while the page is still open, the browser's memory saving (for example Chrome's Memory Saver) has most likely frozen a tab you hadn't looked at for a while, so the service thought the page was closed. Start with `--keep` to avoid it.
 
-**With 按cv selected, group headers say the background service is outdated**: after you update the code, a page reload picks up the new page, but the background service only updates when restarted. Run `node nodemark.js stop`, then `node nodemark.js` again.
+**With 按cv selected, group headers say the background service is outdated (or 取消全部标记 says so)**: after you update the code, a page reload picks up the new page, but the background service only updates when restarted. Run `node nodemark.js stop`, then `node nodemark.js` again.
 
 **Port already in use**: pick another one with `--port`.
 

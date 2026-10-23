@@ -509,6 +509,20 @@ function setMark(name, mark) {
   saveMarks();
 }
 
+// 取消当前订阅下所有节点的标记，返回取消了几个
+function clearMarks() {
+  const p = profileEntry(currentProfile());
+  let n = 0;
+  for (const info of Object.values(p.nodes)) {
+    if (!info.mark) continue;
+    info.mark = null;
+    delete info.markedAt;
+    n++;
+  }
+  if (n) saveMarks();
+  return n;
+}
+
 // ---------- HTTP 服务 ----------
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
@@ -575,6 +589,9 @@ function serve() {
         const { name, mark } = await readBody(req);
         setMark(String(name), mark || null);
         return send(res, 200, { ok: true });
+      }
+      if (url.pathname === '/api/clear-marks' && req.method === 'POST') {
+        return send(res, 200, { ok: true, cleared: clearMarks() });
       }
       if (url.pathname === '/api/select' && req.method === 'POST') {
         const { group, name } = await readBody(req);
