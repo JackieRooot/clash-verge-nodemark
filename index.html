@@ -57,7 +57,7 @@
   }
   input[type=search] { width: 180px; }
   label.toggle { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
-  main { padding: 12px 16px 40px; max-width: 1600px; margin: 0 auto; }
+  main { padding: 12px 16px 40px; max-width: 1800px; margin: 0 auto; }
 
   .group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; box-shadow: var(--shadow); }
   .ghead {
@@ -74,8 +74,13 @@
   .ghead button:hover, .btn:hover { border-color: var(--primary); color: var(--primary); }
   .chev { color: var(--muted); transition: transform .15s; }
   .group.open .chev { transform: rotate(90deg); }
-  .grid { display: none; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; padding: 0 14px 14px; }
-  .group.open .grid { display: grid; }
+  /* 组内节点分栏（宽屏 3 栏），每栏一行 2 个；节点先排满第一栏再排下一栏，栏之间用竖线隔开 */
+  .grid { display: none; gap: 0; padding: 0 14px 14px; align-items: flex-start; }
+  .group.open .grid { display: flex; }
+  .ncol { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0 10px; }
+  .ncol:first-child { padding-left: 0; }
+  .ncol:last-child { padding-right: 0; }
+  .ncol + .ncol { border-left: 1px dashed var(--line); }
 
   .card {
     position: relative; background: var(--card); border: 1.5px solid var(--line); border-radius: 8px;
@@ -141,7 +146,6 @@
     header, main { padding-left: 16px; padding-right: 16px; }
     .tools { margin-left: 0; }
     input[type=search] { width: 140px; }
-    .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   }
 </style>
 </head>
@@ -154,6 +158,7 @@
     <input type="search" id="q" placeholder="搜索节点">
     <select id="sort" title="排序">
       <option value="default">默认顺序</option>
+      <option value="cv">按cv</option>
       <option value="delay">按延迟</option>
       <option value="mark">按标记</option>
       <option value="markDelay">按标记+延迟</option>
@@ -231,6 +236,21 @@ function delayView(name, d) {
   return { cls: d < 400 ? 'd-fast' : d < 1000 ? 'd-mid' : 'd-slow', text: d + ' ms' };
 }
 
+// 和 Clash Verge 的「按延迟」一致：先分档（测出延迟 < 超时 < 失败 < 没测过），同档里只有测出延迟的按数值排。
+// 内核历史里的 0（失败）在 Clash Verge 里算 1e6，归到「失败」档
+const CV_SORT_LABEL = { 0: '默认顺序', 1: '按延迟', 2: '按名称' };
+function cvDelayRank(n) {
+  const d = state.nodes[n] && state.nodes[n].delay;
+  if (d === null || d === undefined || d < 0) return [4, 0];
+  if (d === 0 || d > 1e5) return [2, 0];
+  if (d >= state.cvTimeout) return [1, 0];
+  return [0, d];
+}
+function cvDelayCompare(a, b) {
+  const [ra, da] = cvDelayRank(a), [rb, db] = cvDelayRank(b);
+  return ra - rb || da - db;
+}
+
 function sortedMembers(g) {
   const q = $('q').value.trim().toLowerCase();
   const hideBad = $('hideBad').checked, onlyMarked = $('onlyMarked').checked;
@@ -244,12 +264,22 @@ function sortedMembers(g) {
   const sort = $('sort').value;
   const markKey = (n) => MARK_ORDER[state.marks[n] || null];
   const delayKey = (n) => { const d = state.nodes[n] && state.nodes[n].delay; return d ? d : d === 0 ? 1e9 : 1e9 + 1; };
-  if (sort === 'delay') list = [...list].sort((a, b) => delayKey(a) - delayKey(b));
+  if (sort === 'cv') {
+    const t = state.cvSort && state.cvSort[g.name];
+    if (t === 1) list = [...list].sort((a, b) => cvDelayCompare(a, b));
+    else if (t === 2) list = [...list].sort((a, b) => a.localeCompare(b));
+  }
+  else if (sort === 'delay') list = [...list].sort((a, b) => delayKey(a) - delayKey(b));
   else if (sort === 'name') list = [...list].sort((a, b) => a.localeCompare(b, 'zh'));
   else if (sort === 'mark') list = [...list].sort((a, b) => markKey(a) - markKey(b));
   else if (sort === 'markDelay') list = [...list].sort((a, b) => markKey(a) - markKey(b) || delayKey(a) - delayKey(b));
   return list;
 }
+
+// 组内节点分几栏：宽屏 3 栏，窄一些 2 栏，手机 1 栏
+const colCount = () => (innerWidth >= 1200 ? 3 : innerWidth >= 760 ? 2 : 1);
+let lastCols = colCount();
+window.addEventListener('resize', () => { if (colCount() !== lastCols) { lastCols = colCount(); if (state) render(); } });
 
 function render() {
   const s = state;
@@ -271,9 +301,14 @@ function render() {
 
   if (firstVisit) { prefs.open[s.groups[0].name] = true; firstVisit = false; savePrefs(); }
 
+  const cvMode = $('sort').value === 'cv';
+  const nCols = colCount();
   let html = '';
   for (const g of s.groups) {
     const open = !!prefs.open[g.name];
+    // cvSort 字段不存在说明后台服务还是更新前启动的旧版本（页面每次刷新都重新读，服务要重启才会更新）
+    const cvNote = !cvMode ? '' : s.cvSort ? ` · CV：${CV_SORT_LABEL[s.cvSort[g.name] || 0]}`
+      : s.cvSort === undefined ? ' · 后台服务是旧版本，重启服务后才能按cv排序' : ' · 读不到 CV 的排序，按默认顺序';
     const members = sortedMembers(g);
     const gm = { good: 0, warn: 0, bad: 0 };
     for (const n of g.all) if (s.marks[n]) gm[s.marks[n]]++;
@@ -283,14 +318,17 @@ function render() {
         <span class="chev">▶</span>
         <div class="gtitle">
           <div class="gname">${esc(g.name)}</div>
-          <div class="gsub">${esc(g.type)} · ${esc(g.now || '—')}${g.fixed ? '（已固定）' : ''}</div>
+          <div class="gsub">${esc(g.type)} · ${esc(g.now || '—')}${g.fixed ? '（已固定）' : ''}${cvNote}</div>
         </div>
         <span class="gmarks">${g.all.length} 个 · <span style="color:var(--good)">✓${gm.good}</span> <span style="color:var(--warn)">!${gm.warn}</span> <span style="color:var(--bad)">✕${gm.bad}</span></span>
         <button data-act="testGroup"${gTesting ? ' disabled' : ''}>${gTesting ? '测速中…' : '测全组'}</button>
       </div>
       <div class="grid">`;
-    if (open) {
-      for (const n of members) {
+    if (open && members.length) {
+      // 每栏 rows 行 × 2 个，按顺序先填满第一栏
+      const perCol = 2 * Math.ceil(members.length / (2 * nCols));
+      members.forEach((n, i) => {
+        if (i % perCol === 0) html += `${i ? '</div>' : ''}<div class="ncol">`;
         const node = s.nodes[n] || { type: '?' };
         const m = s.marks[n] || '';
         const sel = g.now === n;
@@ -305,8 +343,10 @@ function render() {
             <span class="delay ${dv.cls}" data-act="testNode">${dv.text}</span>
           </div>
         </div>`;
-      }
-      if (!members.length) html += `<div class="empty" style="grid-column:1/-1;padding:12px">没有符合筛选条件的节点</div>`;
+      });
+      html += '</div>';
+    } else if (open) {
+      html += `<div class="empty" style="flex:1;padding:12px">没有符合筛选条件的节点</div>`;
     }
     html += `</div></section>`;
   }

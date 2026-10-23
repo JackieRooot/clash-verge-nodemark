@@ -16,7 +16,9 @@
 - **右键标记**：好用 / 一般 / 不建议 / 清除。标记后卡片显示对应颜色的边框、底色和右上角徽标，组标题旁显示每档数量。
 - **左键切换节点**：和在 Clash Verge 里点一样，Clash Verge 会同步变化。
 - **测延迟**：点卡片右下角测单个节点，点「测全组」测整组。测速地址和超时沿用 Clash Verge 的设置。
-- **筛选和排序**：搜索；按默认顺序 / 延迟 / 标记 / 标记+延迟 / 名称排序；隐藏不建议的节点；只看已标记的节点。
+- **筛选和排序**：搜索；按默认顺序 / cv / 延迟 / 标记 / 标记+延迟 / 名称排序；隐藏不建议的节点；只看已标记的节点。
+- **按cv**：每个代理组沿用它在 Clash Verge 代理页里的排序方式（默认 / 按延迟 / 按名称），组标题下会注明用的是哪种（见下文「按cv 排序」）。
+- **组内分栏**：代理组从上到下排列，每个组内部的节点分成三栏，每栏一行两个；节点按顺序先排满第一栏，再排下一栏。窗口变窄时自动改成两栏、一栏。
 - **多订阅**：标记按订阅分开存，切换订阅不会串。
 - **自动跟随节点变化**：每个订阅的节点清单以内核里的真实清单为准，自动增删（见下文「标记数据」）。
 
@@ -112,6 +114,14 @@ Clash Verge 的数据目录默认在：
 | macOS | `~/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev` |
 | Linux | `~/.local/share/io.github.clash-verge-rev.clash-verge-rev` |
 
+### 按cv 排序
+
+Clash Verge 代理页每个组的排序方式（组标题栏里的排序按钮）存在它内置 WebView2 的 localStorage 里，键名是 `proxy-head-state`，按订阅分开记录。本工具直接读这份数据，位置在 `%LOCALAPPDATA%\io.github.clash-verge-rev.clash-verge-rev\EBWebView\Default\Local Storage\leveldb`，格式是 LevelDB。只读，不写。
+
+- 「按延迟」的规则和 Clash Verge 一样：先排测出延迟的（从小到大），再排超时的，然后是失败的，最后是没测过的。超时阈值沿用 Clash Verge 的设置。
+- 在 Clash Verge 里改了排序后，WebView 要过几秒才会写到磁盘，所以本页面可能晚几秒才跟上。
+- 只支持 Windows。macOS / Linux 上的 WebView 存储格式不同，选「按cv」时所有组都按默认顺序排，组标题下会注明。
+
 ### 环境变量
 
 都不是必需的，默认情况下不用设置。
@@ -139,6 +149,8 @@ Clash Verge 的数据目录默认在：
 **页面显示「连不上 mihomo 内核」**：Clash Verge 没开，或者内核正在重启。打开 Clash Verge 后等几秒，页面会自动恢复。
 
 **页面显示「本地服务已停止」**：后台服务已经自动退出了，重新运行一次 `node nodemark.js` 就行。如果页面没关也遇到这种情况，多半是浏览器的省内存功能（比如 Chrome 的 Memory Saver）把长时间没看的标签页冻结了，服务以为页面关掉了。不想遇到的话，用 `--keep` 启动。
+
+**选「按cv」后组标题下显示「后台服务是旧版本」**：更新代码后页面刷新就是新的，但后台服务要重启才会更新。运行 `node nodemark.js stop`，再运行一次 `node nodemark.js`。
 
 **提示端口被占用**：用 `--port` 换一个端口。
 

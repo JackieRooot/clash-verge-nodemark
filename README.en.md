@@ -18,7 +18,9 @@ It changes no Clash Verge settings and needs no patched build. It talks to the m
 - **Right-click to mark**: good / so-so / avoid / clear. Marked cards get a colored border, a tinted background and a badge in the top-right corner. Each group header shows how many nodes carry each mark.
 - **Left-click to switch**: works like clicking in Clash Verge, and Clash Verge follows the change.
 - **Delay tests**: click the delay at the bottom-right of a card to test one node, or 测全组 to test a whole group. The test URL and timeout come from your Clash Verge settings.
-- **Filter and sort**: search; sort by default order, delay, mark, mark then delay, or name; hide nodes marked avoid; show only marked nodes.
+- **Filter and sort**: search; sort by default order, CV order (按cv), delay, mark, mark then delay, or name; hide nodes marked avoid; show only marked nodes.
+- **CV order (按cv)**: each proxy group uses the sort order it has on the Clash Verge proxies page (default / by delay / by name). The group header shows which one applies (see "CV order" below).
+- **Columns inside each group**: proxy groups are stacked top to bottom, and the nodes inside each group are split into three columns with two nodes per row; nodes fill the first column before moving to the next. Narrow windows fall back to two columns, then one.
 - **Multiple subscriptions**: marks are stored per subscription, so switching subscriptions never mixes them up.
 - **Follows node changes**: each subscription's node list follows the core's live list, adding and removing nodes automatically (see "Mark data" below).
 
@@ -114,6 +116,14 @@ Clash Verge's data folder is, by default:
 | macOS | `~/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev` |
 | Linux | `~/.local/share/io.github.clash-verge-rev.clash-verge-rev` |
 
+### CV order
+
+Clash Verge stores each group's sort order on its proxies page (the sort button in the group header) in the localStorage of its built-in WebView2, under the key `proxy-head-state`, separately for each subscription. This tool reads that data directly from `%LOCALAPPDATA%\io.github.clash-verge-rev.clash-verge-rev\EBWebView\Default\Local Storage\leveldb`, a LevelDB database. It only reads and never writes.
+
+- "By delay" follows the same rules as Clash Verge: measured nodes first (fastest first), then timeouts, then failures, then untested nodes. The timeout threshold comes from your Clash Verge settings.
+- After you change the sort order in Clash Verge, the WebView takes a few seconds to write it to disk, so this page may follow a few seconds later.
+- Windows only. The WebView on macOS / Linux uses a different storage format, so there 按cv shows every group in default order, and the group header says so.
+
 ### Environment variables
 
 All optional; the defaults need none of them.
@@ -141,6 +151,8 @@ With `CLASH_API` you can also point it at other clients built on the mihomo / Cl
 **The page says it can't reach the mihomo core**: Clash Verge is not running, or the core is restarting. Open Clash Verge and wait a few seconds; the page recovers on its own.
 
 **The page says the local service has stopped**: the background service exited on its own; run `node nodemark.js` again. If this happens while the page is still open, the browser's memory saving (for example Chrome's Memory Saver) has most likely frozen a tab you hadn't looked at for a while, so the service thought the page was closed. Start with `--keep` to avoid it.
+
+**With 按cv selected, group headers say the background service is outdated**: after you update the code, a page reload picks up the new page, but the background service only updates when restarted. Run `node nodemark.js stop`, then `node nodemark.js` again.
 
 **Port already in use**: pick another one with `--port`.
 

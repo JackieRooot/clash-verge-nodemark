@@ -135,6 +135,142 @@ function currentProfile() {
   return { uid, name };
 }
 
+// ---------- 读 Clash Verge 代理页里每个组的排序方式 ----------
+// Clash Verge 把代理页每个组的界面状态存在 WebView 的 localStorage 里，键是 proxy-head-state，
+// 结构为 { <订阅 uid>: { <组名>: { sortType: 0 默认 | 1 按延迟 | 2 按名称, ... } } }。
+// Windows 上 WebView2 把 localStorage 存成 LevelDB（表文件的数据块用 snappy 压缩），这里自己解析，不引依赖。
+// 其他系统的 WebView 用的是别的存储格式，读不到时页面退回默认顺序。
+
+function varint(buf, pos) {
+  let v = 0, mul = 1, b;
+  do { b = buf[pos++]; v += (b & 0x7f) * mul; mul *= 128; } while (b & 0x80);
+  return [v, pos];
+}
+
+function snappyUncompress(src) {
+  let [len, pos] = varint(src, 0);
+  const out = Buffer.alloc(len);
+  let op = 0;
+  while (pos < src.length) {
+    const tag = src[pos++];
+    if ((tag & 3) === 0) {                     // 字面量
+      let n = tag >> 2;
+      if (n >= 60) { const k = n - 59; n = src.readUIntLE(pos, k); pos += k; }
+      n += 1;
+      src.copy(out, op, pos, pos + n); pos += n; op += n;
+      continue;
+    }
+    let n, off;                                // 回引：从已输出的数据里复制，可能和自身重叠，只能逐字节
+    if ((tag & 3) === 1) { n = ((tag >> 2) & 7) + 4; off = ((tag >> 5) << 8) | src[pos++]; }
+    else if ((tag & 3) === 2) { n = (tag >> 2) + 1; off = src.readUInt16LE(pos); pos += 2; }
+    else { n = (tag >> 2) + 1; off = src.readUInt32LE(pos); pos += 4; }
+    for (let i = 0; i < n; i++, op++) out[op] = out[op - off];
+  }
+  return out;
+}
+
+// 表文件（.ldb）里的一个块：前缀压缩的键值对 + 末尾的重启点数组
+function blockEntries(block) {
+  const end = block.length - 4 - block.readUInt32LE(block.length - 4) * 4;
+  const out = [];
+  let pos = 0, key = Buffer.alloc(0), shared, own, vlen;
+  while (pos < end) {
+    [shared, pos] = varint(block, pos); [own, pos] = varint(block, pos); [vlen, pos] = varint(block, pos);
+    key = Buffer.concat([key.subarray(0, shared), block.subarray(pos, pos + own)]); pos += own;
+    out.push([key, block.subarray(pos, pos + vlen)]); pos += vlen;
+  }
+  return out;
+}
+
+function readBlock(file, handle) {
+  const [off, p] = varint(handle, 0);
+  const [size] = varint(handle, p);
+  const raw = file.subarray(off, off + size);
+  return file[off + size] === 1 ? snappyUncompress(raw) : raw;   // 块后 1 字节压缩类型：0 不压缩，1 snappy
+}
+
+// 内部键 = 用户键 + 8 字节（序号 << 8 | 类型；类型 1 写入，0 删除）
+function tableEntries(file, visit) {
+  const footer = file.subarray(file.length - 48);
+  let p = varint(footer, varint(footer, 0)[1])[1];              // 跳过 metaindex 的位置和大小
+  for (const [, handle] of blockEntries(readBlock(file, footer.subarray(p)))) {
+    for (const [ikey, value] of blockEntries(readBlock(file, handle))) {
+      const tail = ikey.readBigUInt64LE(ikey.length - 8);
+      visit(ikey.subarray(0, ikey.length - 8), tail >> 8n, Number(tail & 0xffn) === 1 ? value : null);
+    }
+  }
+}
+
+// 日志文件（.log）：32 KB 一块，记录可能跨块拆成 FIRST / MIDDLE / LAST；每条完整记录是一个写入批次
+function logEntries(file, visit) {
+  let parts = [];
+  for (let block = 0; block < file.length; block += 32768) {
+    const end = Math.min(block + 32768, file.length);
+    for (let pos = block; pos + 7 <= end;) {
+      const len = file.readUInt16LE(pos + 4), type = file[pos + 6];
+      if (type === 0) break;
+      const data = file.subarray(pos + 7, pos + 7 + len);
+      pos += 7 + len;
+      if (type === 1 || type === 2) parts = [data]; else parts.push(data);
+      if (type !== 1 && type !== 4) continue;
+      const batch = Buffer.concat(parts);
+      let seq = batch.readBigUInt64LE(0), at = 12, klen, vlen;
+      for (let i = batch.readUInt32LE(8); i > 0; i--, seq++) {
+        const put = batch[at++] === 1;
+        [klen, at] = varint(batch, at);
+        const key = batch.subarray(at, at + klen); at += klen;
+        let value = null;
+        if (put) { [vlen, at] = varint(batch, at); value = batch.subarray(at, at + vlen); at += vlen; }
+        visit(key, seq, value);
+      }
+      parts = [];
+    }
+  }
+}
+
+// 从 LevelDB 目录里找 localStorage 某个键的最新值（Chromium 的键格式：'_' + 源 + '\0' + '\x01' + 键名）
+function readLocalStorage(dir, name) {
+  const suffix = Buffer.from(`\0\x01${name}`, 'latin1');
+  let best = { seq: -1n, value: null };
+  const visit = (key, seq, value) => {
+    if (key[0] === 0x5f && key.length > suffix.length && key.subarray(key.length - suffix.length).equals(suffix) && seq > best.seq) {
+      best = { seq, value };
+    }
+  };
+  for (const f of fs.readdirSync(dir)) {
+    if (f.endsWith('.ldb')) tableEntries(fs.readFileSync(path.join(dir, f)), visit);
+    else if (f.endsWith('.log')) logEntries(fs.readFileSync(path.join(dir, f)), visit);
+  }
+  const v = best.value;
+  if (!v || !v.length) return null;
+  return v[0] === 0 ? v.subarray(1).toString('utf16le') : v.subarray(1).toString('latin1');   // 首字节 0 = UTF-16LE，1 = Latin-1
+}
+
+let cvSortCache = { sig: '', data: null };
+
+// 返回当前订阅下 { 组名: 0 | 1 | 2 }，没设置过的组不在里面（等于默认顺序）；读不到返回 null
+function cvSortTypes(uid) {
+  const vergeDir = findVergeDir();
+  if (process.platform !== 'win32' || !vergeDir) return null;
+  const dir = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
+    path.basename(vergeDir), 'EBWebView', 'Default', 'Local Storage', 'leveldb');
+  try {
+    // 文件没变就不重新解析
+    const sig = fs.readdirSync(dir).map((f) => { const s = fs.statSync(path.join(dir, f)); return `${f}:${s.size}:${s.mtimeMs}`; }).join('|');
+    if (sig !== cvSortCache.sig) {
+      const text = readLocalStorage(dir, 'proxy-head-state');
+      cvSortCache = { sig, data: text ? JSON.parse(text) : {} };
+    }
+  } catch {
+    // Clash Verge 正在整理 LevelDB 文件时可能读到一半，沿用上次的结果，下次再读
+    if (!cvSortCache.data) return null;
+  }
+  const groups = cvSortCache.data[uid] || {};
+  const out = {};
+  for (const [g, s] of Object.entries(groups)) if (s && [1, 2].includes(s.sortType)) out[g] = s.sortType;
+  return out;
+}
+
 // ---------- 演示模式：一个只在内存里的假内核 ----------
 
 const demo = (() => {
@@ -353,6 +489,9 @@ async function buildState() {
   return {
     demo: DEMO, profile, mode, groups, nodes,
     marks: nodeMarks,
+    // 「按cv」排序用：每个组在 Clash Verge 里的排序方式，以及它判定超时的阈值
+    cvSort: DEMO ? { '自动选择': 1, '流媒体': 2 } : cvSortTypes(profile.uid),
+    cvTimeout: DEMO ? 10000 : vergeSettings().timeout,
     realCount: realNames.size,
     removedRecent: entry ? entry.removed.slice(-20).reverse() : [],
     syncing: !synced,
