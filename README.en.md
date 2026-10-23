@@ -15,7 +15,7 @@ It changes no Clash Verge settings and needs no patched build. It talks to the m
 ## Features
 
 - **Mirrored proxy groups**: same group order, selected node, node type and delay as Clash Verge, refreshed every 3 seconds.
-- **Right-click to mark**: good / so-so / avoid / clear. Marked cards get a colored border, a tinted background and a badge in the top-right corner. Each group header shows how many nodes carry each mark.
+- **Right-click to mark**: good / so-so / avoid / clear. Marked cards get a tinted background and a badge in the top-right corner (the colored frame is reserved for the currently selected node). Each group header shows how many nodes carry each mark.
 - **Left-click to switch**: works like clicking in Clash Verge, and Clash Verge follows the change.
 - **Delay tests**: click the delay at the bottom-right of a card to test one node, or 测全组 to test a whole group. The test URL and timeout come from your Clash Verge settings.
 - **Filter and sort**: search; sort by default order, CV order (按cv), delay, mark, mark then delay, or name; hide nodes marked avoid; show only marked nodes.

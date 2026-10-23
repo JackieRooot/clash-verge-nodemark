@@ -16,9 +16,9 @@
     --bg: #f5f6f8; --panel: #ffffff; --card: #ffffff; --card-hover: #f0f3f8;
     --text: #1f2329; --muted: #6b7280; --line: #e3e6eb;
     --primary: #1976d2; --primary-bg: rgba(25, 118, 210, 0.12);
-    --good: #16a34a; --good-bg: rgba(22, 163, 74, 0.08);
-    --warn: #d97706; --warn-bg: rgba(217, 119, 6, 0.09);
-    --bad: #dc2626; --bad-bg: rgba(220, 38, 38, 0.08);
+    --good: #16a34a; --good-bg: rgba(22, 163, 74, 0.15);
+    --warn: #d97706; --warn-bg: rgba(217, 119, 6, 0.16);
+    --bad: #dc2626; --bad-bg: rgba(220, 38, 38, 0.14);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   }
   @media (prefers-color-scheme: dark) {
@@ -26,9 +26,9 @@
       --bg: #17181b; --panel: #1f2125; --card: #26292e; --card-hover: #2e3238;
       --text: #e6e8eb; --muted: #9aa1ab; --line: #34383f;
       --primary: #5aa9f5; --primary-bg: rgba(90, 169, 245, 0.16);
-      --good: #34c46a; --good-bg: rgba(52, 196, 106, 0.10);
-      --warn: #f0a530; --warn-bg: rgba(240, 165, 48, 0.11);
-      --bad: #f2615b; --bad-bg: rgba(242, 97, 91, 0.11);
+      --good: #34c46a; --good-bg: rgba(52, 196, 106, 0.18);
+      --warn: #f0a530; --warn-bg: rgba(240, 165, 48, 0.18);
+      --bad: #f2615b; --bad-bg: rgba(242, 97, 91, 0.18);
       --shadow: none;
     }
   }
@@ -86,7 +86,8 @@
     padding: 8px 10px 7px; cursor: pointer; min-height: 58px; transition: background .1s;
   }
   .card:hover { background: var(--card-hover); }
-  .card.sel { background: var(--primary-bg); border-color: var(--primary); }
+  /* 只有选中的卡片画彩色框：1.5px 边框再加 1.5px 内描边，共 3px，不改变卡片尺寸 */
+  .card.sel { background: var(--primary-bg); border-color: var(--primary); box-shadow: inset 0 0 0 1.5px var(--primary); }
   .card.sel .name { color: var(--primary); }
   .card.locked { cursor: default; }
   .name { font-size: 13px; font-weight: 500; word-break: break-all; padding-right: 18px;
@@ -100,12 +101,13 @@
   .delay.d-slow, .delay.d-timeout { color: var(--bad); }
   .delay.d-none { opacity: .55; }
 
-  /* 质量标记：边框 + 右上角徽标 + 底色 */
-  .card.m-good { border-color: var(--good); background-image: linear-gradient(var(--good-bg), var(--good-bg)); }
-  .card.m-warn { border-color: var(--warn); background-image: linear-gradient(var(--warn-bg), var(--warn-bg)); }
-  .card.m-bad  { border-color: var(--bad);  background-image: linear-gradient(var(--bad-bg), var(--bad-bg)); }
+  /* 质量标记：右上角徽标 + 底色（不画边框，边框只留给选中） */
+  .card.m-good { background-image: linear-gradient(var(--good-bg), var(--good-bg)); }
+  .card.m-warn { background-image: linear-gradient(var(--warn-bg), var(--warn-bg)); }
+  .card.m-bad  { background-image: linear-gradient(var(--bad-bg), var(--bad-bg)); }
   .card.m-bad .name { opacity: .8; }
-  .card.sel.m-good, .card.sel.m-warn, .card.sel.m-bad { box-shadow: inset 0 0 0 1.5px var(--primary); }
+  /* 已标记的卡片选中时只留标记底色，不再叠选中的蓝底 */
+  .card.sel.m-good, .card.sel.m-warn, .card.sel.m-bad { background-color: var(--card); }
   .badge {
     position: absolute; top: 6px; right: 6px; width: 17px; height: 17px; border-radius: 50%;
     color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; line-height: 1;
