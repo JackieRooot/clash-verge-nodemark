@@ -189,8 +189,8 @@ const POLL_MS = 3000;
 
 let state = null;
 let lastJson = '';
-const testing = new Set();          // 正在测速的节点名 / 'group:组名'（测全组和仅测 ✓ ! 共用）
-const TEST_CONCURRENCY = 8;         // 仅测 ✓ ! 时同时测几个节点
+const testing = new Set();          // 正在测速的节点名 / 'group:组名'（测全组、仅测 ✓ !、仅测未标记共用）
+const TEST_CONCURRENCY = 8;         // 仅测 ✓ ! / 仅测未标记时同时测几个节点
 
 // 每个浏览器自己的界面偏好（展开的组、筛选），存不了也不影响使用
 const prefs = (() => {
@@ -319,6 +319,7 @@ function render() {
     const members = sortedMembers(g);
     const gm = { good: 0, warn: 0, bad: 0 };
     for (const n of g.all) if (s.marks[n]) gm[s.marks[n]]++;
+    const unmarkedCount = g.all.filter((n) => s.nodes[n] && s.nodes[n].markable && !s.marks[n]).length;
     const gTesting = testing.has('group:' + g.name);
     html += `<section class="group${open ? ' open' : ''}" data-group="${esc(g.name)}">
       <div class="ghead" data-act="toggle">
@@ -330,6 +331,7 @@ function render() {
         <span class="gmarks">${g.all.length} 个 · <span style="color:var(--good)">✓${gm.good}</span> <span style="color:var(--warn)">!${gm.warn}</span> <span style="color:var(--bad)">✕${gm.bad}</span></span>
         <span class="gbtns">
           <button data-act="testMarked" title="只测本组里标为 ✓ 好用、! 一般 的节点"${gTesting || !gm.good && !gm.warn ? ' disabled' : ''}>仅测 ✓ !</button>
+          <button data-act="testUnmarked" title="只测本组里还没有标记的节点（不含代理组、DIRECT 等不能标记的项）"${gTesting || !unmarkedCount ? ' disabled' : ''}>仅测未标记</button>
           <button data-act="testGroup"${gTesting ? ' disabled' : ''}>${gTesting ? '测速中…' : '测全组'}</button>
         </span>
       </div>
@@ -388,10 +390,13 @@ $('main').addEventListener('click', async (e) => {
     testing.delete('group:' + group); g.all.forEach((n) => testing.delete(n));
     return refresh(true);
   }
-  if (act && act.dataset.act === 'testMarked') {
+  if (act && (act.dataset.act === 'testMarked' || act.dataset.act === 'testUnmarked')) {
     e.stopPropagation();
     const g = state.groups.find((x) => x.name === group);
-    const names = g.all.filter((n) => ['good', 'warn'].includes(state.marks[n]));
+    const unmarked = act.dataset.act === 'testUnmarked';
+    // 「未标记」只算能标记的节点：代理组、DIRECT 这类不算（测代理组会顺带测它当前选中的节点，可能是已标记的）
+    const names = g.all.filter((n) => unmarked ? state.nodes[n] && state.nodes[n].markable && !state.marks[n]
+      : ['good', 'warn'].includes(state.marks[n]));
     if (!names.length) return;
     testing.add('group:' + group);
     names.forEach((n) => testing.add(n));
@@ -411,7 +416,7 @@ $('main').addEventListener('click', async (e) => {
     };
     await Promise.all(Array.from({ length: Math.min(TEST_CONCURRENCY, names.length) }, worker));
     testing.delete('group:' + group);
-    toast(`${group}：测了 ${names.length} 个 ✓ ! 节点${failed ? `，${failed} 个超时或失败` : ''}`);
+    toast(`${group}：测了 ${names.length} 个${unmarked ? '未标记' : ' ✓ ! '}节点${failed ? `，${failed} 个超时或失败` : ''}`);
     return refresh(true);
   }
   if (act && act.dataset.act === 'toggle') {

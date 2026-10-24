@@ -274,7 +274,7 @@ function cvSortTypes(uid) {
 // ---------- 演示模式：一个只在内存里的假内核 ----------
 
 const demo = (() => {
-  const regions = [['🇭🇰', '香港'], ['🇯🇵', '日本'], ['🇸🇬', '新加坡'], ['🇺🇸', '美国'], ['🇹🇼', '台湾']];
+  const regions = [['🇭🇰', '香港'], ['🇯🇵', '日本'], ['🇸🇬', '新加坡'], ['🇺🇸', '美国'], ['🇨🇳', '台湾']];
   const types = ['Vless', 'Hysteria2', 'Trojan', 'Shadowsocks', 'Vmess'];
   const proxies = {};
   const nodes = [];
