@@ -10,14 +10,15 @@ It changes no Clash Verge settings and needs no patched build. It talks to the m
 
 <sub>The screenshot uses the fake data of demo mode (`node nodemark.js --demo`).</sub>
 
-> The page itself is in Chinese. The labels are few: 好用 = good, 一般 = so-so, 不建议 = avoid, 测全组 = test the whole group, 测速 = test delay.
+> The page itself is in Chinese. The labels are few: 好用 = good, 一般 = so-so, 不建议 = avoid, 测全组 = test the whole group, 测速 = test delay, 用户标记 = user marks, 系统标记 = system rating.
 
 ## Features
 
 - **Mirrored proxy groups**: same group order, selected node, node type and delay as Clash Verge, refreshed every 3 seconds.
 - **Right-click to mark**: good / so-so / avoid / unmark. Marked cards get a tinted background and a badge in the top-right corner (the colored frame is reserved for the currently selected node). Each group header shows how many nodes carry each mark. 取消全部标记 in the top bar removes every mark in the current profile (it asks first, and this can't be undone).
 - **Left-click to switch**: works like clicking in Clash Verge, and Clash Verge follows the change.
-- **Delay tests**: click the delay at the bottom-right of a card to test one node, 测全组 to test a whole group, 仅测 ✓ ! to test only the group's nodes marked good or so-so, 仅测未标记 to test only the group's unmarked nodes, or 仅测 ✕ to test only the group's nodes marked avoid (to see whether they have improved). The test URL and timeout come from your Clash Verge settings.
+- **Two modes**: switch between 用户标记 (user marks) and 系统标记 (system rating) in the top bar. User marks are the manual marks described here; the system rating gives each node stars automatically from its history of whole-group tests (see "System rating" below).
+- **Delay tests** (user-marks mode): click the delay at the bottom-right of a card to test one node, 测全组 to test a whole group, 仅测 ✓ ! to test only the group's nodes marked good or so-so, 仅测未标记 to test only the group's unmarked nodes, or 仅测 ✕ to test only the group's nodes marked avoid (to see whether they have improved). The test URL and timeout come from your Clash Verge settings.
 - **Filter and sort**: search; sort by default order, CV order (按cv), delay, mark, mark then delay, or name; hide nodes marked avoid; show only marked nodes.
 - **CV order (按cv)**: each proxy group uses the sort order it has on the Clash Verge proxies page (default / by delay / by name). The group header shows which one applies (see "CV order" below).
 - **Columns inside each group**: proxy groups are stacked top to bottom, and the nodes inside each group are split into three columns with two nodes per row; nodes fill the first column before moving to the next. Narrow windows fall back to two columns, then one.
@@ -85,6 +86,42 @@ alias jd='node ~/path/to/clash-verge-nodemark/nodemark.js'
 
 With the global install, just type `nodemark`.
 
+## System rating
+
+After you switch the top bar to 系统标记, the page hides the manual marks and shows each node's rating instead: 0–5 stars in half-star steps, meant to measure how a node performs on average over a longer period.
+
+- Only 测全组 (test the whole group) is available: no single-node tests, no 仅测 buttons, no right-click mark menu. Each whole-group test records one sample for every real node in the group (proxy groups, DIRECT and the like are skipped) and updates the ratings right away. Whole-group tests run in user-marks mode are not recorded.
+- Each node keeps its latest 30 samples. A node that appears in several groups has a single shared history.
+- Cards show the stars, the sample count and the number of timeouts; nodes with fewer than 3 samples are labeled 样本不足 (too few samples). Hover over the stars to see the unrounded score and whether timeouts capped it. The sort menu has 按推荐指数 (by rating).
+
+### Scoring rules
+
+Each sample is first turned into a single-test score by its delay. The band table depends on whether Clash Verge's "unified delay" was on during the test (every sample records that setting, so after you toggle it, old and new samples each use their own bands):
+
+| Band | Unified delay off | Unified delay on | Score | Weight |
+|---|---|---|---|---|
+| S | < 800 ms | < 200 ms | 5 | 1 |
+| A | 800–1100 ms | 200–400 ms | 4 | 1 |
+| B | 1100–1500 ms | 400–700 ms | 3 | 1.5 |
+| C | 1500–2200 ms | 700–1200 ms | 2 | 2 |
+| D | 2200–3500 ms | 1200–2500 ms | 1 | 3 |
+| Timeout | ≥ 3500 ms, timeout or failure | ≥ 2500 ms, timeout or failure | 0 | 6 |
+
+Worse bands weigh more, so bad results pull the rating down harder than good results push it up. The "unified delay on" bands have not been tested against real data yet; they are estimates.
+
+Rating = (Σ weight × score + 3) ÷ (Σ weight + 1), rounded to the nearest half star. The extra term acts like one made-up result of 3, so a new node can't get full marks from one test: it takes 7 straight S-band results to reach 5 stars.
+
+The result is then capped by the timeouts among the latest 30 samples (results slower than the last band also count as timeouts):
+
+| Timeouts | Highest rating |
+|---|---|
+| None | No cap |
+| 1 | 2 stars |
+| 2 or more, or a timeout rate ≥ 15% | 1 star |
+| Timeout rate ≥ 40% | 0 stars |
+
+If a group has at least 4 nodes and 60% or more of them time out in one test, the problem is most likely your own network, so that whole round is discarded and the page tells you so.
+
 ## Mark data
 
 Marks are saved in `marks.json`, grouped by subscription (the uid in Clash Verge's `profiles.yaml`):
@@ -102,7 +139,9 @@ How the node list stays in sync:
 - Only the current subscription is synced; the others stay as they are.
 - To avoid wrong deletions, the list is synced only after the same subscription has reported the same node list for at least 5 seconds. This covers the moment when you switch subscriptions.
 
-Marks are matched by node name, so if your provider renames a node, its old mark no longer applies. If `marks.json` is corrupted, it is copied to `marks.json.broken-<timestamp>` and a fresh file is started.
+The system rating's test history is also saved in `marks.json`, under each node (`samples`), and is deleted together with the node when it leaves the list.
+
+Marks and test history are matched by node name, so if your provider renames a node, its old records no longer apply. If `marks.json` is corrupted, it is copied to `marks.json.broken-<timestamp>` and a fresh file is started.
 
 ## How it works
 
@@ -152,7 +191,7 @@ With `CLASH_API` you can also point it at other clients built on the mihomo / Cl
 
 **The page says the local service has stopped**: the background service exited on its own; run `node nodemark.js` again. If this happens while the page is still open, the browser's memory saving (for example Chrome's Memory Saver) has most likely frozen a tab you hadn't looked at for a while, so the service thought the page was closed. Start with `--keep` to avoid it.
 
-**With 按cv selected, group headers say the background service is outdated (or 取消全部标记 says so)**: after you update the code, a page reload picks up the new page, but the background service only updates when restarted. Run `node nodemark.js stop`, then `node nodemark.js` again.
+**With 按cv selected, group headers say the background service is outdated (or 取消全部标记, or 测全组 in system-rating mode, says so)**: after you update the code, a page reload picks up the new page, but the background service only updates when restarted. Run `node nodemark.js stop`, then `node nodemark.js` again.
 
 **Port already in use**: pick another one with `--port`.
 

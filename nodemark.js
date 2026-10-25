@@ -2,6 +2,7 @@
 // clash-verge-nodemark：在浏览器里镜像 Clash Verge 的代理组页面，右键节点卡片标记 好用 / 一般 / 不建议。
 // 不改 Clash Verge 的任何设置：直接连 mihomo 内核的控制接口（Windows 命名管道 / macOS、Linux 的 Unix socket，
 // 或者 HTTP 外部控制），读节点、切节点、测延迟。标记按订阅分开存，节点清单以内核里的真实清单为准。
+// 另有「系统标记」模式：按历次「测全组」的结果给节点算推荐指数（星级），规则见下面的 SCORE_BANDS。
 //
 // 用法：
 //   node nodemark.js          服务没在运行就在后台启动，然后用默认浏览器打开页面
@@ -71,6 +72,19 @@ const BUILTIN_TYPES = new Set(['Direct', 'Reject', 'RejectDrop', 'Pass', 'PassRu
 const isMarkable = (p) => p && !GROUP_TYPES.has(p.type) && !BUILTIN_TYPES.has(p.type);
 const enc = encodeURIComponent;
 
+// 系统标记：只记系统标记模式下「测全组」的结果，按历史换算成推荐指数（0–5 星，半星一档）。
+// 每个样本按测试时统一延迟的开关选档位表：[延迟上限 ms（不含）, 单次分, 权重]，越差的档权重越大；
+// 超过最后一档上限、超时、失败都按超时算（0 分，权重 TIMEOUT_WEIGHT）。
+// 没开统一延迟的那套按实测定；开了的那套还没实测，是估算
+const SCORE_BANDS = {
+  off: [[800, 5, 1], [1100, 4, 1], [1500, 3, 1.5], [2200, 2, 2], [3500, 1, 3]],
+  on: [[200, 5, 1], [400, 4, 1], [700, 3, 1.5], [1200, 2, 2], [2500, 1, 3]],
+};
+const TIMEOUT_WEIGHT = 6;
+const PRIOR_SCORE = 3, PRIOR_WEIGHT = 1;   // 先垫一次 3 分的虚拟结果，新节点测一次拿不到满分
+const SAMPLE_KEEP = 30;                    // 每个节点保留最近多少个样本（超时封顶也只看这些）
+const VOID_MIN = 4, VOID_RATIO = 0.6;      // 组里至少 4 个节点、本轮 ≥ 60% 超时：当作本机网络问题，整轮不计入
+
 // ---------- 读配置 ----------
 
 function yamlScalar(text, key) {
@@ -115,6 +129,13 @@ function vergeSettings() {
     testUrl: process.env.NODEMARK_TEST_URL || (v && yamlScalar(v, 'default_latency_test')) || DEFAULT_TEST_URL,
     timeout: Number(v && yamlScalar(v, 'default_latency_timeout')) || 10000,
   };
+}
+
+// 统一延迟开没开：优先用内核 /configs 返回的实际状态，没有再读运行时配置
+function unifiedDelay(configs) {
+  if (configs && typeof configs['unified-delay'] === 'boolean') return configs['unified-delay'];
+  const y = readVerge('clash-verge.yaml');
+  return !!y && yamlScalar(y, 'unified-delay') === 'true';
 }
 
 // 当前订阅：profiles.yaml 顶层 current 是 uid，到 items 里找同 uid 那一项的 name；没有 Clash Verge 时统一记在 default 下
@@ -280,12 +301,16 @@ const demo = (() => {
   const nodes = [];
   let seed = 7;
   const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  // 每个节点的基准延迟和超时概率（loss = 1 是一直超时的节点）
+  const sample = (p) => (rand() < p.loss ? 0 : Math.round(p.base + rand() * p.base * 0.8));
+  const LOSS = { '3-4': 1, '4-3': 1, '0-3': 0.06, '1-2': 0.12, '2-4': 0.3 };
   regions.forEach(([flag, region], r) => {
     for (let i = 1; i <= 4; i++) {
       const name = `${flag} ${region} ${String(i).padStart(2, '0')}`;
-      const base = [45, 70, 95, 180, 85][r];
-      const delay = (r === 3 && i === 4) || (r === 4 && i === 3) ? 0 : Math.round(base + rand() * base * 0.8);
-      proxies[name] = { name, type: types[(r + i) % types.length], udp: i !== 3, history: [{ delay }], base };
+      const p = { name, type: types[(r + i) % types.length], udp: i !== 3,
+        base: [45, 70, 95, 180, 85][r] * [1, 1.6, 2.6, 4][i - 1], loss: LOSS[`${r}-${i}`] || 0 };
+      p.history = [{ delay: p.loss === 1 ? 0 : Math.round(p.base + rand() * p.base * 0.8) }];
+      proxies[name] = p;
       nodes.push(name);
     }
   });
@@ -301,14 +326,20 @@ const demo = (() => {
   const marks = {};
   const seedMarks = { [nodes[0]]: 'good', [nodes[1]]: 'good', [nodes[5]]: 'good', [nodes[9]]: 'good',
     [nodes[2]]: 'warn', [nodes[12]]: 'warn', [nodes[15]]: 'bad', [nodes[18]]: 'bad', [nodes[7]]: 'bad' };
-  for (const n of nodes) marks[n] = { mark: seedMarks[n] || null, firstSeen: '2026-01-01T00:00:00.000Z' };
+  // 系统标记的历史样本：大多数节点 10–24 个，一个只有 2 个（样本不足），一个还没测过；演示内核按开了统一延迟算
+  nodes.forEach((n, k) => {
+    marks[n] = { mark: seedMarks[n] || null, firstSeen: '2026-01-01T00:00:00.000Z' };
+    const count = k === 19 ? 0 : k === 17 ? 2 : 10 + Math.floor(rand() * 15);
+    if (count) marks[n].samples = Array.from({ length: count }, (_, j) => ({
+      at: new Date(Date.now() - (count - j) * 6 * 3600e3).toISOString(), delay: sample(proxies[n]), unified: true,
+    }));
+  });
 
   function test(name) {
     const p = proxies[name];
     if (!p || p.type === 'Direct' || p.type === 'Reject') return 0;
     if (p.all) { const d = test(p.now); p.history = [{ delay: d }]; return d; }
-    const timeout = p.history.length && p.history[p.history.length - 1].delay === 0;
-    const delay = timeout ? 0 : Math.round(p.base + rand() * p.base * 0.8);
+    const delay = sample(p);
     p.history = [{ delay }];
     return delay;
   }
@@ -317,7 +348,7 @@ const demo = (() => {
     const url = new URL(apiPath, 'http://demo');
     const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
     if (method === 'GET' && url.pathname === '/proxies') return { status: 200, json: { proxies } };
-    if (method === 'GET' && url.pathname === '/configs') return { status: 200, json: { mode: 'rule' } };
+    if (method === 'GET' && url.pathname === '/configs') return { status: 200, json: { mode: 'rule', 'unified-delay': true } };
     if (method === 'PUT' && parts[0] === 'proxies' && proxies[parts[1]]) {
       proxies[parts[1]].now = body.name;
       return { status: 204, json: null };
@@ -329,7 +360,8 @@ const demo = (() => {
     if (parts[0] === 'group' && parts[2] === 'delay' && proxies[parts[1]]) {
       const out = {};
       for (const n of proxies[parts[1]].all) { const d = test(n); if (d) out[n] = d; }
-      return { status: 200, json: out };
+      // 和 mihomo 一样：只返回测通的；全都不通时返回 504
+      return Object.keys(out).length ? { status: 200, json: out } : { status: 504, json: { message: 'get delay: all proxies timeout' } };
     }
     return { status: 404, json: { message: 'not found' } };
   }
@@ -388,7 +420,9 @@ async function coreGet(apiPath) {
 }
 
 // ---------- 标记文件 ----------
-// { version, profiles: { <uid>: { name, syncedAt, nodes: { <节点名>: { mark, firstSeen, markedAt } }, removed: [...] } } }
+// { version, profiles: { <uid>: { name, syncedAt, removed: [...],
+//     nodes: { <节点名>: { mark, firstSeen, markedAt, samples: [{ at, delay, unified }] } } } } }
+// samples 是系统标记的测速历史，delay 为 0 表示超时 / 失败
 
 function loadMarks() {
   if (DEMO) return { version: 1, profiles: demo.profiles };
@@ -446,6 +480,56 @@ function syncNodes(profile, realNames) {
   return true;
 }
 
+// ---------- 系统标记：推荐指数 ----------
+
+function sampleBand(s) {
+  if (s.delay > 0) for (const [max, score, weight] of SCORE_BANDS[s.unified ? 'on' : 'off']) {
+    if (s.delay < max) return { score, weight, timeout: false };
+  }
+  return { score: 0, weight: TIMEOUT_WEIGHT, timeout: true };
+}
+
+// 推荐指数 = 加权平均（含垫的虚拟结果），四舍五入到半星；再按窗口内的超时情况封顶
+function rateNode(samples) {
+  let sum = PRIOR_SCORE * PRIOR_WEIGHT, weights = PRIOR_WEIGHT, timeouts = 0;
+  for (const s of samples) {
+    const b = sampleBand(s);
+    sum += b.score * b.weight; weights += b.weight;
+    if (b.timeout) timeouts++;
+  }
+  const score = sum / weights;
+  const rate = timeouts / samples.length;
+  const cap = !timeouts ? 5 : rate >= 0.4 ? 0 : timeouts >= 2 || rate >= 0.15 ? 1 : 2;
+  const rounded = Math.round(score * 2) / 2;
+  return { stars: Math.min(rounded, cap), score: Math.round(score * 100) / 100, n: samples.length, timeouts, capped: cap < rounded };
+}
+
+// 系统标记模式的「测全组」：测完把组里每个真实节点的结果记一个样本（代理组、DIRECT 这类不记）
+async function systemGroupTest(group, query) {
+  const [{ proxies }, configs] = await Promise.all([coreGet('/proxies'), coreGet('/configs')]);
+  const unified = unifiedDelay(configs);
+  const g = proxies[group];
+  if (!g || !g.all) throw new Error(`找不到代理组：${group}`);
+  const names = [...new Set(g.all)].filter((n) => isMarkable(proxies[n]));
+  const r = await coreRequest('GET', `/group/${enc(group)}/delay?${query}`);
+  // 内核只返回测通的节点，全都不通时返回 504；没返回的都按超时记
+  if (r.status !== 200 && r.status !== 504) throw new Error(`测速失败：${r.status} ${r.json && r.json.message}`);
+  const got = r.status === 200 && r.json ? r.json : {};
+  const results = names.map((n) => ({ name: n, delay: Number(got[n]) || 0 }));
+  const timeouts = results.filter((x) => sampleBand({ delay: x.delay, unified }).timeout).length;
+  const out = { ok: true, total: names.length, timeouts, recorded: false };
+  if (!names.length || (names.length >= VOID_MIN && timeouts / names.length >= VOID_RATIO)) return out;
+
+  const p = profileEntry(currentProfile());
+  const at = new Date().toISOString();
+  for (const { name, delay } of results) {
+    const info = p.nodes[name] || (p.nodes[name] = { mark: null, firstSeen: at });
+    info.samples = [...(info.samples || []), { at, delay, unified }].slice(-SAMPLE_KEEP);
+  }
+  saveMarks();
+  return { ...out, recorded: true };
+}
+
 // ---------- 组装页面数据 ----------
 
 async function buildState() {
@@ -484,11 +568,18 @@ async function buildState() {
 
   const entry = marks.profiles[profile.uid];
   const nodeMarks = {};
-  if (entry) for (const [n, info] of Object.entries(entry.nodes)) if (info.mark) nodeMarks[n] = info.mark;
+  const ratings = {};
+  if (entry) for (const [n, info] of Object.entries(entry.nodes)) {
+    if (info.mark) nodeMarks[n] = info.mark;
+    if (info.samples && info.samples.length) ratings[n] = rateNode(info.samples);
+  }
+  const bands = SCORE_BANDS[unifiedDelay(configs) ? 'on' : 'off'];
 
   return {
     demo: DEMO, profile, mode, groups, nodes,
     marks: nodeMarks,
+    ratings,
+    slowMs: bands[bands.length - 1][0],   // 当前档位下慢于多少算超时（页面上说明用）
     // 「按cv」排序用：每个组在 Clash Verge 里的排序方式，以及它判定超时的阈值
     cvSort: DEMO ? { '自动选择': 1, '流媒体': 2 } : cvSortTypes(profile.uid),
     cvTimeout: DEMO ? 10000 : vergeSettings().timeout,
@@ -600,9 +691,10 @@ function serve() {
         return send(res, 200, { ok: true });
       }
       if (url.pathname === '/api/delay' && req.method === 'POST') {
-        const { name, group } = await readBody(req);
+        const { name, group, record } = await readBody(req);
         const { testUrl, timeout } = vergeSettings();
         const q = `url=${enc(testUrl)}&timeout=${timeout}`;
+        if (group && record) return send(res, 200, await systemGroupTest(String(group), q));
         // 测全组用 /group/<组>/delay，测单个用 /proxies/<节点>/delay；结果都写进内核的延迟历史
         const r = group
           ? await coreRequest('GET', `/group/${enc(group)}/delay?${q}`)

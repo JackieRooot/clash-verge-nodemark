@@ -19,6 +19,7 @@
     --good: #16a34a; --good-bg: rgba(22, 163, 74, 0.15);
     --warn: #d97706; --warn-bg: rgba(217, 119, 6, 0.16);
     --bad: #dc2626; --bad-bg: rgba(220, 38, 38, 0.14);
+    --star: #f59e0b; --star-off: #d5d9df;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   }
   @media (prefers-color-scheme: dark) {
@@ -29,6 +30,7 @@
       --good: #34c46a; --good-bg: rgba(52, 196, 106, 0.18);
       --warn: #f0a530; --warn-bg: rgba(240, 165, 48, 0.18);
       --bad: #f2615b; --bad-bg: rgba(242, 97, 91, 0.18);
+      --star: #fbbf24; --star-off: #4a4f57;
       --shadow: none;
     }
   }
@@ -57,6 +59,12 @@
   }
   input[type=search] { width: 180px; }
   label.toggle { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+  /* 用户标记 / 系统标记 两种模式：只属于某个模式的控件在另一个模式下隐藏 */
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; background: var(--card); color: var(--muted); font: inherit; font-size: 12.5px; height: 28px; padding: 0 10px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--primary-bg); color: var(--primary); font-weight: 600; }
+  body[data-mode=system] .user-only, body[data-mode=user] .system-only { display: none !important; }
   main { padding: 12px 16px 40px; max-width: 1800px; margin: 0 auto; }
 
   .group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; box-shadow: var(--shadow); }
@@ -102,6 +110,16 @@
   .delay.d-mid { color: var(--warn); }
   .delay.d-slow, .delay.d-timeout { color: var(--bad); }
   .delay.d-none { opacity: .55; }
+  .delay.plain:hover { background: none; color: inherit; }
+  .delay.plain.d-fast:hover { color: var(--good); }
+  .delay.plain.d-mid:hover { color: var(--warn); }
+  .delay.plain.d-slow:hover, .delay.plain.d-timeout:hover { color: var(--bad); }
+
+  /* 系统标记：星级（灰色底星上叠一层按比例截断的金色星，支持半星）+ 样本数 */
+  .rate { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .stars { position: relative; display: inline-block; color: var(--star-off); font-size: 12.5px; letter-spacing: 1px; line-height: 1; }
+  .stars i { position: absolute; left: 0; top: 0; overflow: hidden; color: var(--star); font-style: normal; }
+  .rate .to { color: var(--bad); }
 
   /* 质量标记：右上角徽标 + 底色（不画边框，边框只留给选中） */
   .card.m-good { background-image: linear-gradient(var(--good-bg), var(--good-bg)); }
@@ -156,6 +174,10 @@
 <body>
 <header>
   <h1>节点标记</h1>
+  <span class="seg" id="modeSwitch">
+    <button data-mode="user" title="右键节点卡片，手动标记好用 / 一般 / 不建议">用户标记</button>
+    <button data-mode="system" title="按「测全组」的历史结果自动算推荐指数（星级）">系统标记</button>
+  </span>
   <span id="profile" class="chip">连接中…</span>
   <span class="counts" id="counts"></span>
   <div class="tools">
@@ -164,13 +186,14 @@
       <option value="default">默认顺序</option>
       <option value="cv">按cv</option>
       <option value="delay">按延迟</option>
-      <option value="mark">按标记</option>
-      <option value="markDelay">按标记+延迟</option>
+      <option value="mark" class="user-only">按标记</option>
+      <option value="markDelay" class="user-only">按标记+延迟</option>
+      <option value="rating" class="system-only">按推荐指数</option>
       <option value="name">按名称</option>
     </select>
-    <label class="toggle"><input type="checkbox" id="hideBad">隐藏不建议</label>
-    <label class="toggle"><input type="checkbox" id="onlyMarked">只看已标记</label>
-    <button class="btn" id="clearAll" title="取消当前订阅下所有节点的标记">取消全部标记</button>
+    <label class="toggle user-only"><input type="checkbox" id="hideBad">隐藏不建议</label>
+    <label class="toggle user-only"><input type="checkbox" id="onlyMarked">只看已标记</label>
+    <button class="btn user-only" id="clearAll" title="取消当前订阅下所有节点的标记">取消全部标记</button>
   </div>
 </header>
 <main id="main"><div class="empty">正在读取 Clash Verge…</div></main>
@@ -208,7 +231,12 @@ const prefs = (() => {
 })();
 let firstVisit = !prefs.open;     // 第一次打开时默认展开第一个组
 prefs.open = prefs.open || {};
+// 两种模式各记各的排序方式（旧版只有一个 sort，归给用户标记）
+prefs.mode = prefs.mode === 'system' ? 'system' : 'user';
+prefs.sortBy = prefs.sortBy || { user: prefs.sort || 'default', system: 'rating' };
+delete prefs.sort;
 function savePrefs() { try { localStorage.setItem('nodeMarksPrefs', JSON.stringify(prefs)); } catch {} }
+const isSystem = () => prefs.mode === 'system';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -247,7 +275,7 @@ async function refresh(force) {
 
 function delayView(name, d) {
   if (testing.has(name)) return { cls: 'd-none', text: '测速中…' };
-  if (d === null || d === undefined) return { cls: 'd-none', text: '测速' };
+  if (d === null || d === undefined) return { cls: 'd-none', text: isSystem() ? '—' : '测速' };
   if (d === 0) return { cls: 'd-timeout', text: '超时' };
   return { cls: d < 400 ? 'd-fast' : d < 1000 ? 'd-mid' : 'd-slow', text: d + ' ms' };
 }
@@ -267,9 +295,31 @@ function cvDelayCompare(a, b) {
   return ra - rb || da - db;
 }
 
+// 按推荐指数：星级高的在前，同星级按未取整的分数、再按延迟；没评分的（含代理组、DIRECT）排最后
+function ratingCompare(a, b, delayKey) {
+  const ra = state.ratings[a], rb = state.ratings[b];
+  if (!ra || !rb) return (!ra - !rb) || (!ra && !rb ? delayKey(a) - delayKey(b) : 0);
+  return rb.stars - ra.stars || rb.score - ra.score || delayKey(a) - delayKey(b);
+}
+
+// 系统标记的星级行：星级 + 样本数，有超时写出次数；详情放在悬停提示里
+function rateView(n, node) {
+  if (!node.markable) return '';
+  const r = state.ratings[n];
+  if (!r) return '<div class="rate">未评分</div>';
+  const tip = `推荐指数 ${r.score.toFixed(2)} → ${r.stars} 星` +
+    `\n最近 ${r.n} 次测全组，超时 ${r.timeouts} 次（慢于 ${state.slowMs} ms 也算超时）` +
+    (r.capped ? '\n因超时封顶' : '') + (r.n < 3 ? '\n样本不足 3 个，仅供参考' : '');
+  return `<div class="rate" title="${esc(tip)}">` +
+    `<span class="stars">★★★★★<i style="width:${r.stars * 20}%">★★★★★</i></span>` +
+    `<span>${r.stars} · ${r.n} 次${r.n < 3 ? ' · 样本不足' : ''}</span>` +
+    (r.timeouts ? `<span class="to">超时 ${r.timeouts} 次</span>` : '') + '</div>';
+}
+
 function sortedMembers(g) {
   const q = $('q').value.trim().toLowerCase();
-  const hideBad = $('hideBad').checked, onlyMarked = $('onlyMarked').checked;
+  // 筛选开关只属于用户标记模式
+  const hideBad = !isSystem() && $('hideBad').checked, onlyMarked = !isSystem() && $('onlyMarked').checked;
   let list = g.all.filter((n) => {
     const m = state.marks[n] || null;
     if (q && !n.toLowerCase().includes(q)) return false;
@@ -289,6 +339,7 @@ function sortedMembers(g) {
   else if (sort === 'name') list = [...list].sort((a, b) => a.localeCompare(b, 'zh'));
   else if (sort === 'mark') list = [...list].sort((a, b) => markKey(a) - markKey(b));
   else if (sort === 'markDelay') list = [...list].sort((a, b) => markKey(a) - markKey(b) || delayKey(a) - delayKey(b));
+  else if (sort === 'rating') list = [...list].sort((a, b) => ratingCompare(a, b, delayKey));
   return list;
 }
 
@@ -302,13 +353,25 @@ function render() {
   $('profile').className = 'chip';
   $('profile').textContent = `${s.demo ? '演示数据　·　' : ''}订阅：${s.profile.name}　·　${{ rule: '规则', global: '全局', direct: '直连' }[s.mode] || s.mode}模式`;
 
-  const c = { good: 0, warn: 0, bad: 0 };
-  for (const m of Object.values(s.marks)) c[m]++;
-  $('counts').innerHTML =
-    `<span style="color:var(--good)">✓ <b>${c.good}</b></span>` +
-    `<span style="color:var(--warn)">! <b>${c.warn}</b></span>` +
-    `<span style="color:var(--bad)">✕ <b>${c.bad}</b></span>` +
-    `<span>共 ${s.realCount} 个节点${s.syncing ? '（清单同步中）' : ''}</span>`;
+  const system = isSystem();
+  if (!s.ratings) s.ratings = {};   // 后台服务是旧版本时没有这个字段
+  const total = `共 ${s.realCount} 个节点${s.syncing ? '（清单同步中）' : ''}`;
+  if (system) {
+    const rs = Object.values(s.ratings);
+    $('counts').innerHTML =
+      `<span style="color:var(--good)">4★ 以上 <b>${rs.filter((r) => r.stars >= 4).length}</b></span>` +
+      `<span style="color:var(--warn)">2–3.5★ <b>${rs.filter((r) => r.stars >= 2 && r.stars < 4).length}</b></span>` +
+      `<span style="color:var(--bad)">1.5★ 以下 <b>${rs.filter((r) => r.stars < 2).length}</b></span>` +
+      `<span>已评分 ${rs.length} · ${total}</span>` +
+      (s.slowMs ? `<span title="当前统一延迟设置下的门槛">慢于 ${s.slowMs} ms 算超时</span>` : '');
+  } else {
+    const c = { good: 0, warn: 0, bad: 0 };
+    for (const m of Object.values(s.marks)) c[m]++;
+    $('counts').innerHTML =
+      `<span style="color:var(--good)">✓ <b>${c.good}</b></span>` +
+      `<span style="color:var(--warn)">! <b>${c.warn}</b></span>` +
+      `<span style="color:var(--bad)">✕ <b>${c.bad}</b></span><span>${total}</span>`;
+  }
   $('clearAll').disabled = !Object.keys(s.marks).length;
 
   if (!s.groups.length) {
@@ -337,11 +400,12 @@ function render() {
           <div class="gname">${esc(g.name)}</div>
           <div class="gsub">${esc(g.type)} · ${esc(g.now || '—')}${g.fixed ? '（已固定）' : ''}${cvNote}</div>
         </div>
-        <span class="gmarks">${g.all.length} 个 · <span style="color:var(--good)">✓${gm.good}</span> <span style="color:var(--warn)">!${gm.warn}</span> <span style="color:var(--bad)">✕${gm.bad}</span></span>
+        <span class="gmarks">${g.all.length} 个 · ${system ? `已评分 ${g.all.filter((n) => s.ratings[n]).length}`
+          : `<span style="color:var(--good)">✓${gm.good}</span> <span style="color:var(--warn)">!${gm.warn}</span> <span style="color:var(--bad)">✕${gm.bad}</span>`}</span>
         <span class="gbtns">
-          ${Object.entries(SUBSET_TESTS).map(([act, t]) =>
+          ${system ? '' : Object.entries(SUBSET_TESTS).map(([act, t]) =>
             `<button data-act="${act}" title="${t.title}"${gTesting || !g.all.some(t.pick) ? ' disabled' : ''}>${t.button}</button>`).join('')}
-          <button data-act="testGroup"${gTesting ? ' disabled' : ''}>${gTesting ? '测速中…' : '测全组'}</button>
+          <button data-act="testGroup"${system ? ' title="测本组所有节点，结果记入推荐指数的历史"' : ''}${gTesting ? ' disabled' : ''}>${gTesting ? '测速中…' : '测全组'}</button>
         </span>
       </div>
       <div class="grid">`;
@@ -351,17 +415,18 @@ function render() {
       members.forEach((n, i) => {
         if (i % perCol === 0) html += `${i ? '</div>' : ''}<div class="ncol">`;
         const node = s.nodes[n] || { type: '?' };
-        const m = s.marks[n] || '';
+        const m = system ? '' : s.marks[n] || '';   // 系统标记模式不显示手动标记
         const sel = g.now === n;
-        const dv = delayView(n, node.delay);
+        const dv = delayView(n, node.delay);   // 系统标记只能测全组，延迟不能点
         const locked = !SELECTABLE.has(g.type);
         html += `<div class="card${sel ? ' sel' : ''}${m ? ' m-' + m : ''}${locked ? ' locked' : ''}" data-node="${esc(n)}" title="${esc(n)}">
           ${m ? `<span class="badge ${m}">${MARK_INFO[m].icon}</span>` : ''}
           <div class="name">${esc(n)}</div>
+          ${system ? rateView(n, node) : ''}
           <div class="meta">
             <span class="tag">${esc(node.isGroup ? '组·' + node.type : node.type)}</span>
             ${node.udp && !node.isGroup ? '<span class="tag">UDP</span>' : ''}
-            <span class="delay ${dv.cls}" data-act="testNode">${dv.text}</span>
+            <span class="delay${system ? ' plain' : ''} ${dv.cls}"${system ? '' : ' data-act="testNode"'}>${dv.text}</span>
           </div>
         </div>`;
       });
@@ -372,7 +437,7 @@ function render() {
     html += `</div></section>`;
   }
 
-  if (s.removedRecent.length) {
+  if (!system && s.removedRecent.length) {
     html += `<details class="removed"><summary>最近因节点消失而移除的标记（${s.removedRecent.length}）</summary><ul>` +
       s.removedRecent.map((r) => `<li><span class="badge ${r.mark}" style="position:static;display:inline-grid;vertical-align:-3px">${MARK_INFO[r.mark].icon}</span> ${esc(r.name)} <span style="opacity:.7">· ${new Date(r.removedAt).toLocaleString()}</span></li>`).join('') +
       `</ul></details>`;
@@ -395,7 +460,17 @@ $('main').addEventListener('click', async (e) => {
     const g = state.groups.find((x) => x.name === group);
     g.all.forEach((n) => testing.add(n));
     render();
-    try { await api('/api/delay', { group }); } catch (err) { toast(err.message); }
+    // 只有系统标记模式下的测全组记入推荐指数的历史
+    const record = isSystem();
+    try {
+      const r = await api('/api/delay', { group, record });
+      if (record) {
+        toast(r.recorded === undefined ? '后台服务是旧版本：运行 node nodemark.js stop 后重新启动'
+          : !r.total ? `${group}：没有可评分的节点`
+          : r.recorded ? `${group}：${r.total} 个节点已记入历史${r.timeouts ? `，${r.timeouts} 个超时` : ''}`
+          : `${group}：本轮 ${r.timeouts}/${r.total} 个超时，疑似本机网络问题，不计入`);
+      }
+    } catch (err) { toast(err.message); }
     testing.delete('group:' + group); g.all.forEach((n) => testing.delete(n));
     return refresh(true);
   }
@@ -457,7 +532,7 @@ let menuTarget = null;
 
 $('main').addEventListener('contextmenu', (e) => {
   const card = e.target.closest('.card');
-  if (!card) return;
+  if (!card || isSystem()) return;   // 系统标记模式不能手动标记，留浏览器自己的右键菜单
   e.preventDefault();
   const name = card.dataset.node;
   const node = state.nodes[name] || {};
@@ -512,7 +587,29 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu()
 window.addEventListener('scroll', hideMenu, true);
 window.addEventListener('blur', hideMenu);
 
-for (const id of ['q', 'sort', 'hideBad', 'onlyMarked']) {
+// 切换模式：按模式显示控件，排序换成这个模式上次用的（另一个模式专属的排序不可用时退回默认顺序）
+function applyMode() {
+  document.body.dataset.mode = prefs.mode;
+  for (const b of $('modeSwitch').children) b.classList.toggle('on', b.dataset.mode === prefs.mode);
+  const sort = $('sort');
+  sort.value = prefs.sortBy[prefs.mode];
+  const opt = sort.selectedOptions[0];
+  if (!opt || opt.classList.contains(isSystem() ? 'user-only' : 'system-only')) sort.value = 'default';
+}
+applyMode();
+$('modeSwitch').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-mode]');
+  if (!b || b.dataset.mode === prefs.mode) return;
+  prefs.mode = b.dataset.mode; savePrefs();
+  hideMenu(); applyMode();
+  if (state) render();
+});
+$('sort').addEventListener('change', () => {
+  prefs.sortBy[prefs.mode] = $('sort').value; savePrefs();
+  if (state) render();
+});
+
+for (const id of ['q', 'hideBad', 'onlyMarked']) {
   const el = $(id);
   if (id !== 'q' && prefs[id] !== undefined) el[el.type === 'checkbox' ? 'checked' : 'value'] = prefs[id];
   el.addEventListener(id === 'q' ? 'input' : 'change', () => {
