@@ -48,6 +48,7 @@ function userDataDir() {
 const DATA_DIR = process.env.NODEMARK_DATA_DIR || path.join(userDataDir(), APP);
 const MARKS_FILE = path.join(DATA_DIR, 'marks.json');
 const LOG_FILE = path.join(DATA_DIR, 'nodemark.log');
+const LOG_MAX_BYTES = 1024 * 1024;  // 日志超过这么大，下次启动时改名成 nodemark.old.log，重新开一个
 const PAGE_FILE = path.join(__dirname, 'index.html');
 
 // Clash Verge Rev 的数据目录（正式版 / 开发版），可用 VERGE_DIR 指定
@@ -638,25 +639,67 @@ const EXIT_GRACE_MS = 15000;
 let pages = 0;
 let exitTimer = null;
 
+// 服务的输出都带上本地时间：后台启动时它们追加进 nodemark.log，事后靠时间对上系统的睡眠、休眠记录
+function stamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+const log = (...a) => console.log(stamp(), ...a);
+
 function keepAlive(req, res) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
   res.write(': connected\n\n');
   pages++;
+  if (exitTimer) log(`页面连回来了，取消自动退出（当前 ${pages} 个页面）`);
+  else log(`页面已连接（当前 ${pages} 个页面）`);
   clearTimeout(exitTimer);
+  exitTimer = null;
   const beat = setInterval(() => res.write(': ping\n\n'), 25000);
   req.on('close', () => {
     clearInterval(beat);
     pages--;
+    log(`页面断开（当前 ${pages} 个页面）`);
     if (!AUTO_EXIT || pages > 0) return;
+    log(`页面都断开了，${EXIT_GRACE_MS / 1000} 秒内没有页面连回来就自动退出`);
     exitTimer = setTimeout(() => {
       if (pages > 0) return;
-      console.log('页面都关掉了，服务自动退出');
+      log('页面都关掉了，服务自动退出');
       process.exit(0);
     }, EXIT_GRACE_MS);
   });
 }
 
+// 记下服务是怎么退出的。taskkill /F、任务管理器结束进程这类强杀拦不住，日志里会只有前面的记录、没有「进程退出」这一行
+function logLifecycle() {
+  process.on('exit', (code) => log(`进程退出，退出码 ${code}`));
+  process.on('uncaughtException', (e) => {
+    log('未捕获的异常，服务退出：', e && e.stack || e);
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (e) => {
+    log('未处理的 Promise 拒绝，服务退出：', e && e.stack || e);
+    process.exit(1);
+  });
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) {
+    process.on(sig, () => {
+      log(`收到 ${sig}，服务退出`);
+      process.exit(0);
+    });
+  }
+  // 电脑睡眠、休眠时进程整个被挂起，醒来后计时器才接着走；按墙上时间的跳变认出来，方便和「页面断开」对上
+  const TICK_MS = 30000;
+  let last = Date.now();
+  setInterval(() => {
+    const now = Date.now();
+    const gap = now - last - TICK_MS;
+    if (gap > 60000) log(`进程停了约 ${Math.round(gap / 60000)} 分钟，电脑可能睡眠或休眠过`);
+    last = now;
+  }, TICK_MS).unref();
+}
+
 function serve() {
+  logLifecycle();
   marks = loadMarks();
   const allowedHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 
@@ -702,27 +745,30 @@ function serve() {
         return send(res, 200, { ok: r.status === 200, delay: r.json && r.json.delay, message: r.json && r.json.message });
       }
       if (url.pathname === '/api/shutdown' && req.method === 'POST') {
+        log('收到停止请求（node nodemark.js stop），服务退出');
         send(res, 200, { ok: true });
         return setTimeout(() => process.exit(0), 100);
       }
       return send(res, 404, { error: 'not found' });
     } catch (e) {
+      log(`${url.pathname} 出错：${e.message}`);
       return send(res, 502, { error: e.message });
     }
   });
 
   server.on('error', (e) => {
-    console.error(e.code === 'EADDRINUSE' ? `端口 ${PORT} 被占用，换一个：--port <端口>` : e.message);
+    log(e.code === 'EADDRINUSE' ? `端口 ${PORT} 被占用，换一个：--port <端口>` : e.message);
     process.exit(1);
   });
   server.listen(PORT, '127.0.0.1', () => {
-    console.log(`${APP} ${VERSION}${DEMO ? '（演示模式）' : ''}`);
-    console.log(`页面：http://127.0.0.1:${PORT}`);
-    if (DEMO) return console.log('演示模式用的是假数据，不连内核，标记只存在内存里，停掉服务就没了');
+    log(`===== ${APP} ${VERSION}${DEMO ? '（演示模式）' : ''} 启动，pid ${process.pid}`);
+    log(`页面：http://127.0.0.1:${PORT}`);
+    log(AUTO_EXIT ? `所有页面关掉 ${EXIT_GRACE_MS / 1000} 秒后自动退出` : '不自动退出，用 node nodemark.js stop 停止');
+    if (DEMO) return log('演示模式用的是假数据，不连内核，标记只存在内存里，停掉服务就没了');
     let how;
     try { how = resolveCore().label; } catch (e) { how = `（暂时连不上：${e.message}）`; }
-    console.log(`内核：${how}`);
-    console.log(`标记文件：${MARKS_FILE}`);
+    log(`内核：${how}`);
+    log(`标记文件：${MARKS_FILE}`);
   });
 }
 
@@ -765,10 +811,15 @@ async function openCommand() {
   }
   if (state === 'free') {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    const log = fs.openSync(DEMO ? LOG_FILE.replace(/\.log$/, '-demo.log') : LOG_FILE, 'w');
+    // 追加写入，上一次服务的记录（包括它是怎么退出的）留着；太大了就换一个新文件，旧的只留一份
+    const logFile = DEMO ? LOG_FILE.replace(/\.log$/, '-demo.log') : LOG_FILE;
+    try {
+      if (fs.statSync(logFile).size > LOG_MAX_BYTES) fs.renameSync(logFile, logFile.replace(/\.log$/, '.old.log'));
+    } catch {}
+    const logFd = fs.openSync(logFile, 'a');
     const extra = [...(DEMO ? ['--demo'] : []), ...(NO_OPEN || KEEP ? [] : ['--auto-exit'])];
     const child = spawn(process.execPath, [__filename, 'serve', '--port', String(PORT), ...extra], {
-      detached: true, stdio: ['ignore', log, log], windowsHide: true,
+      detached: true, stdio: ['ignore', logFd, logFd], windowsHide: true,
     });
     child.unref();
     for (let i = 0; i < 40 && state !== 'ours'; i++) { await sleep(150); state = await ping(); }

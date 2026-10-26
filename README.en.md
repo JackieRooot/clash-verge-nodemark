@@ -197,7 +197,7 @@ With `CLASH_API` you can also point it at other clients built on the mihomo / Cl
 
 **Flags show as two letters**: Windows fonts don't draw flag emoji, so the page loads a flags-only font from jsDelivr. If jsDelivr is unreachable you see letters instead, and everything else still works.
 
-**The background service failed**: check `nodemark.log` in the same folder as `marks.json`, or run `node nodemark.js serve` to see the output directly.
+**The background service failed, or you don't know when or why it exited**: check `nodemark.log` in the same folder as `marks.json`. Every line is timestamped. It records each start (including whether the service will exit on its own), pages connecting and disconnecting, waking up after the computer slept or hibernated, and why the service exited: all pages closed, `stop`, a system signal, or an error. Each start appends to the file instead of clearing the previous run; once it grows past 1 MB, the next start renames it to `nodemark.old.log` and begins a new one. If the last entries are not followed by a "进程退出" (process exited) line, the process was killed forcibly (for example from Task Manager or with `taskkill /F`). You can also run `node nodemark.js serve` to see the output directly.
 
 ## License
 
