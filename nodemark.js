@@ -10,8 +10,10 @@
 //   node nodemark.js stop     停掉后台服务
 // 选项：--port <端口>（默认 9099）、--no-open（只启动不开浏览器）、
 //       --keep（关掉页面后也不自动退出）、
+//       --no-follow（Clash Verge 退出后也不跟着退出）、
 //       --demo（演示模式：用假数据，不连内核、不写标记文件，默认端口 9098）
 // 后台启动的服务在所有页面都关掉 15 秒后自动退出；带 --no-open 或 --keep 启动的不会。
+// 不管怎么启动，内核连续 30 秒连不上（Clash Verge 退出了）服务都会跟着退出；带 --no-follow 的不会。
 
 'use strict';
 const http = require('http');
@@ -33,6 +35,7 @@ function option(name) {
 const command = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--port')[0] || 'open';
 const NO_OPEN = argv.includes('--no-open');
 const KEEP = argv.includes('--keep');
+const NO_FOLLOW = argv.includes('--no-follow');
 const OPEN_DELAY_S = 3;           // 打开浏览器前倒数的秒数
 const DEMO = argv.includes('--demo');
 const PORT = Number(option('--port') || (!DEMO && process.env.NODEMARK_PORT)) || (DEMO ? 9098 : 9099);
@@ -698,6 +701,37 @@ function logLifecycle() {
   }, TICK_MS).unref();
 }
 
+// 跟随 Clash Verge：内核连上过之后，连续 FOLLOW_GRACE_MS 都连不上就退出。
+// 看内核而不是看 Clash Verge 的进程名，各平台通用；宽限期留给切订阅、改设置时内核的重启。
+// 从没连上过（比如先开了这个服务、还没开 Clash Verge）就一直等，不退出
+const FOLLOW_CHECK_MS = 5000;
+const FOLLOW_GRACE_MS = 30000;
+
+function followCore() {
+  let seen = false;
+  let downSince = null;
+  const check = async () => {
+    let up;
+    try { up = (await coreRequest('GET', '/version')).status < 500; } catch { up = false; }
+    if (up) {
+      if (!seen) log('已连上内核，Clash Verge 退出后服务会跟着退出');
+      else if (downSince) log('内核连回来了');
+      seen = true;
+      downSince = null;
+    } else if (seen) {
+      if (!downSince) {
+        downSince = Date.now();
+        log(`内核连不上了，${FOLLOW_GRACE_MS / 1000} 秒内连不回来就退出`);
+      } else if (Date.now() - downSince >= FOLLOW_GRACE_MS) {
+        log('内核一直连不上，Clash Verge 应该已经退出，服务跟着退出');
+        process.exit(0);
+      }
+    }
+    setTimeout(check, FOLLOW_CHECK_MS);
+  };
+  check();
+}
+
 function serve() {
   logLifecycle();
   marks = loadMarks();
@@ -769,6 +803,8 @@ function serve() {
     try { how = resolveCore().label; } catch (e) { how = `（暂时连不上：${e.message}）`; }
     log(`内核：${how}`);
     log(`标记文件：${MARKS_FILE}`);
+    if (NO_FOLLOW) log('不跟随 Clash Verge 退出（--no-follow）');
+    else followCore();
   });
 }
 
@@ -817,7 +853,7 @@ async function openCommand() {
       if (fs.statSync(logFile).size > LOG_MAX_BYTES) fs.renameSync(logFile, logFile.replace(/\.log$/, '.old.log'));
     } catch {}
     const logFd = fs.openSync(logFile, 'a');
-    const extra = [...(DEMO ? ['--demo'] : []), ...(NO_OPEN || KEEP ? [] : ['--auto-exit'])];
+    const extra = [...(DEMO ? ['--demo'] : []), ...(NO_OPEN || KEEP ? [] : ['--auto-exit']), ...(NO_FOLLOW ? ['--no-follow'] : [])];
     const child = spawn(process.execPath, [__filename, 'serve', '--port', String(PORT), ...extra], {
       detached: true, stdio: ['ignore', logFd, logFd], windowsHide: true,
     });
@@ -861,6 +897,6 @@ if (command === 'serve') serve();
 else if (command === 'stop') stopCommand();
 else if (command === 'open') openCommand();
 else {
-  console.log('用法：node nodemark.js [serve | stop] [--port 端口] [--no-open] [--keep] [--demo]');
+  console.log('用法：node nodemark.js [serve | stop] [--port 端口] [--no-open] [--keep] [--no-follow] [--demo]');
   process.exit(1);
 }

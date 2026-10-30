@@ -55,6 +55,7 @@ When the background service exits:
 
 - **Only closing the last page stops the service.** Running `node nodemark.js` several times opens several tabs, but they all share one background service. Close some of them and, as long as one page is still open, the service keeps running and the remaining pages work as before.
 - 15 seconds after all pages are closed, the service exits on its own. A page reload doesn't count as closing; just run the command again next time.
+- **The service exits when Clash Verge does.** Once the service has reached the core, it exits if the core stays unreachable for 30 seconds in a row (Clash Verge has quit). This also applies to services started with `--keep` or `--no-open`. The core restarts briefly when you switch subscriptions or change settings, but it comes back within seconds, so that won't stop the service. You can start the service before Clash Verge: until it has reached the core once, it just waits. Add `--no-follow` to keep the service running after Clash Verge quits.
 - Closing the terminal you ran the command in does not stop the service.
 - If the service is already running, running the command again doesn't start a second service; it just opens another page.
 
@@ -62,7 +63,8 @@ When the background service exits:
 |---|---|
 | `node nodemark.js` | Start the service in the background if needed, then open the browser |
 | `node nodemark.js --keep` | Same, but the service keeps running after you close the pages |
-| `node nodemark.js --no-open` | Start the service without opening the browser; it does not exit on its own |
+| `node nodemark.js --no-open` | Start the service without opening the browser; it keeps running after you close the pages |
+| `--no-follow` | Keep the service running after Clash Verge quits; combine with any of the commands above |
 | `node nodemark.js stop` | Stop the background service by hand: for services started with `--keep` or `--no-open`, or to stop one right away |
 | `node nodemark.js serve` | Run the service in the current terminal with its log printed there; press Ctrl+C to stop. Not needed day to day, only for troubleshooting |
 | `node nodemark.js --demo` | Demo mode: fake node data, no Clash Verge needed, marks kept in memory only. Default port 9098; stop it with `node nodemark.js stop --demo` |
@@ -197,7 +199,7 @@ With `CLASH_API` you can also point it at other clients built on the mihomo / Cl
 
 **Flags show as two letters**: Windows fonts don't draw flag emoji, so the page loads a flags-only font from jsDelivr. If jsDelivr is unreachable you see letters instead, and everything else still works.
 
-**The background service failed, or you don't know when or why it exited**: check `nodemark.log` in the same folder as `marks.json`. Every line is timestamped. It records each start (including whether the service will exit on its own), pages connecting and disconnecting, waking up after the computer slept or hibernated, and why the service exited: all pages closed, `stop`, a system signal, or an error. Each start appends to the file instead of clearing the previous run; once it grows past 1 MB, the next start renames it to `nodemark.old.log` and begins a new one. If the last entries are not followed by a "进程退出" (process exited) line, the process was killed forcibly (for example from Task Manager or with `taskkill /F`). You can also run `node nodemark.js serve` to see the output directly.
+**The background service failed, or you don't know when or why it exited**: check `nodemark.log` in the same folder as `marks.json`. Every line is timestamped. It records each start (including whether the service will exit on its own), pages connecting and disconnecting, waking up after the computer slept or hibernated, and why the service exited: all pages closed, Clash Verge quit, `stop`, a system signal, or an error. Each start appends to the file instead of clearing the previous run; once it grows past 1 MB, the next start renames it to `nodemark.old.log` and begins a new one. If the last entries are not followed by a "进程退出" (process exited) line, the process was killed forcibly (for example from Task Manager or with `taskkill /F`). You can also run `node nodemark.js serve` to see the output directly.
 
 ## License
 
