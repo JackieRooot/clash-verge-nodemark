@@ -95,6 +95,7 @@ After you switch the top bar to 系统标记, the page hides the manual marks an
 - Only 测全组 (test the whole group) is available: no single-node tests, no 仅测 buttons, no right-click mark menu. Each whole-group test records one sample for every real node in the group (proxy groups, DIRECT and the like are skipped) and updates the ratings right away. Whole-group tests run in user-marks mode are not recorded.
 - Each node keeps its latest 30 samples. A node that appears in several groups has a single shared history.
 - Cards show the stars, the sample count and the number of timeouts; nodes with fewer than 3 samples are labeled 样本不足 (too few samples). Hover over the stars to see the unrounded score and whether timeouts capped it. The sort menu has 按推荐指数 (by rating).
+- Hovering over the 系统标记 button in the top bar, or over a card's stars, also shows a short summary of the rating rules, including the score for each delay range under the current unified-delay setting (the band table below).
 
 ### Scoring rules
 

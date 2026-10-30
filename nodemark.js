@@ -577,13 +577,15 @@ async function buildState() {
     if (info.mark) nodeMarks[n] = info.mark;
     if (info.samples && info.samples.length) ratings[n] = rateNode(info.samples);
   }
-  const bands = SCORE_BANDS[unifiedDelay(configs) ? 'on' : 'off'];
+  const unified = unifiedDelay(configs);
+  const bands = SCORE_BANDS[unified ? 'on' : 'off'];
 
   return {
     demo: DEMO, profile, mode, groups, nodes,
     marks: nodeMarks,
     ratings,
     slowMs: bands[bands.length - 1][0],   // 当前档位下慢于多少算超时（页面上说明用）
+    unified, bands,                       // 当前统一延迟开关和对应的档位表（页面的星级规则说明用）
     // 「按cv」排序用：每个组在 Clash Verge 里的排序方式，以及它判定超时的阈值
     cvSort: DEMO ? { '自动选择': 1, '流媒体': 2 } : cvSortTypes(profile.uid),
     cvTimeout: DEMO ? 10000 : vergeSettings().timeout,

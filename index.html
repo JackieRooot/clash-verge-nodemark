@@ -302,14 +302,29 @@ function ratingCompare(a, b, delayKey) {
   return rb.stars - ra.stars || rb.score - ra.score || delayKey(a) - delayKey(b);
 }
 
+// 星级规则的简要说明，悬停在「系统标记」按钮和星级上时显示；细节见 nodemark.js 的 SCORE_BANDS、rateNode。
+// 延迟区间用后台服务发来的当前档位表，后台服务是旧版本、没发档位表时不写区间
+const SYSTEM_BTN_TITLE = document.querySelector('button[data-mode=system]').title;
+function ratingRules() {
+  const b = state && state.bands;
+  const bandLines = b ? `　（当前统一延迟${state.unified ? '已开启' : '已关闭'}；开、关两套区间不同，每次结果按测试时的设置算）\n` +
+    b.map(([max, score], i) => `　${i ? `${b[i - 1][0]}–${max} ms` : `${max} ms 以下`}：${score} 分`).join('\n') +
+    `\n　${b[b.length - 1][0]} ms 及以上、超时、失败：0 分\n` : '';
+  return '星级规则：\n' +
+    '· 系统标记模式下每次「测全组」，给每个节点记一次结果，延迟越低分越高' + (b ? '：\n' + bandLines : '（5–1 分），超时、失败 0 分\n') +
+    '· 推荐指数是最近 30 次结果的加权平均，越差的结果权重越大；新节点先垫一次 3 分，测一次拿不到满分\n' +
+    '· 有超时就封顶：1 次最多 2 星，2 次以上或占 15% 以上最多 1 星，占 40% 以上 0 星\n' +
+    '· 一轮里组内 60% 以上节点都超时，当作本机网络问题，这一轮不计入';
+}
+
 // 系统标记的星级行：星级 + 样本数，有超时写出次数；详情放在悬停提示里
 function rateView(n, node) {
   if (!node.markable) return '';
   const r = state.ratings[n];
-  if (!r) return '<div class="rate">未评分</div>';
+  if (!r) return `<div class="rate" title="${esc('还没测过全组\n\n' + ratingRules())}">未评分</div>`;
   const tip = `推荐指数 ${r.score.toFixed(2)} → ${r.stars} 星` +
     `\n最近 ${r.n} 次测全组，超时 ${r.timeouts} 次（慢于 ${state.slowMs} ms 也算超时）` +
-    (r.capped ? '\n因超时封顶' : '') + (r.n < 3 ? '\n样本不足 3 个，仅供参考' : '');
+    (r.capped ? '\n因超时封顶' : '') + (r.n < 3 ? '\n样本不足 3 个，仅供参考' : '') + '\n\n' + ratingRules();
   return `<div class="rate" title="${esc(tip)}">` +
     `<span class="stars">★★★★★<i style="width:${r.stars * 20}%">★★★★★</i></span>` +
     `<span>${r.stars} · ${r.n} 次${r.n < 3 ? ' · 样本不足' : ''}</span>` +
@@ -354,6 +369,7 @@ function render() {
   $('profile').textContent = `${s.demo ? '演示数据　·　' : ''}订阅：${s.profile.name}　·　${{ rule: '规则', global: '全局', direct: '直连' }[s.mode] || s.mode}模式`;
 
   const system = isSystem();
+  document.querySelector('button[data-mode=system]').title = SYSTEM_BTN_TITLE + '\n\n' + ratingRules();
   if (!s.ratings) s.ratings = {};   // 后台服务是旧版本时没有这个字段
   const total = `共 ${s.realCount} 个节点${s.syncing ? '（清单同步中）' : ''}`;
   if (system) {
